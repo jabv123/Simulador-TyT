@@ -1,0 +1,28 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123b5d">
+  <meta name="description" content="Plataforma de práctica y evaluación Saber TyT.">
+  <title>{% block title %}Simulador Saber TyT{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block scripts %}{% endblock %}
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Inicio del simulador">
+      <span class="brand-mark">TyT</span>
+      <span><strong>Simulador Saber TyT</strong><small>Práctica y evaluación</small></span>
+    </a>
+    <div class="account-bar">
+      <span id="account-name"></span>
+      <button id="logout-button" class="button button-quiet hidden" type="button">Cerrar sesión</button>
+    </div>
+  </header>
+  {% block content %}{% endblock %}
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="false"></div>
+  <footer class="footer">Simulador académico · Saber TyT</footer>
+</body>
+</html>

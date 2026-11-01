@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+  <main id="app" class="layout">
+    <section id="login-view" class="login-card">
+      <h1>Ingresa al simulador</h1>
+      <p class="muted">Usa el código o el correo y la contraseña registrados por el administrador.</p>
+      <form id="login-form" class="form-stack">
+        <label>Código de usuario (o usa el correo alternativo)
+          <input name="codigo" autocomplete="username">
+        </label>
+        <label>Correo electrónico (alternativo)
+          <input name="correo" type="email" autocomplete="email">
+        </label>
+        <label>Contraseña
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="button button-primary" type="submit">Iniciar sesión</button>
+      </form>
+      <p id="login-message" class="message" role="status"></p>
+    </section>
+
+    <section id="dashboard-view" class="dashboard hidden">
+      <aside class="sidebar">
+        <p class="eyebrow">Panel</p>
+        <nav id="navigation" aria-label="Navegación principal"></nav>
+      </aside>
+      <section class="workspace">
+        <div id="notice" class="message" role="status"></div>
+        <div id="page-content"></div>
+      </section>
+    </section>
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{% static 'js/app.js' %}"></script>
+{% endblock %}
