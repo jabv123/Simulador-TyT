@@ -92,6 +92,73 @@ templates/
   `required_permissions`; los alcances `TODOS`, `A_SU_CARGO` y `PROPIOS` se
   aplican en las consultas. Ocultar un botón en el frontend **no** es seguridad.
 
+### Arquitectura obligatoria: SOLID y separación de capas
+
+Queda prohibido el **“vibe coding”**: código monolítico, vistas que concentran
+lógica de negocio (*Fat Views*), lógica de negocio en plantillas, serializadores
+que orquestan procesos completos o modelos que esconden flujos de negocio.
+
+Toda funcionalidad nueva debe justificar su estructura bajo SOLID y respetar
+estas responsabilidades:
+
+| Capa | Responsabilidad permitida | Prohibido |
+| --- | --- | --- |
+| `models.py` | Esquema, relaciones, `constraints` e invariantes simples del registro en `clean()` | Orquestar casos de uso, consultas complejas, llamadas externas o efectos secundarios ocultos |
+| `managers.py` / `selectors.py` | Consultas, filtros, `select_related`, `prefetch_related`, anotaciones y agregaciones | Escrituras, reglas de negocio, cálculos de negocio o validación de permisos |
+| `services.py` | Casos de uso, transacciones, cálculos, transiciones de estado e integración entre modelos | Manejar `HttpRequest`/`HttpResponse`, serializar respuestas o decidir permisos HTTP |
+| `serializers.py` | Validación de entrada y representación de salida; delega reglas de negocio a `services.py` | Duplicar reglas de negocio, orquestar flujos o hacer `save()` con lógica compleja |
+| `views.py` / `viewsets.py` | Recibir la petición, aplicar permisos, invocar un servicio o selector y devolver la respuesta | Consultas complejas, cálculos, transacciones de negocio o `.save()` de flujos completos |
+| `urls.py` | Enrutamiento | Lógica de negocio o consultas |
+| `templates/` y `static/` | Presentación, accesibilidad y experiencia de usuario | Consultas, cálculos de negocio o decisiones de autorización |
+| `tests.py` | Pruebas por capa y de integración HTTP | Depender de datos o servicios externos no controlados |
+
+**Aplicación de SOLID en Django**
+
+- **S — Responsabilidad única:** una función o clase de servicio por caso de
+  uso (`iniciar_intento`, `finalizar_intento`, `calcular_nota`,
+  `importar_preguntas`). Una vista solo coordina; no implementa el caso de uso.
+- **O — Abierto/Cerrado:** reportes, exportadores, importadores y notificadores
+  se extienden mediante una clase base, `Protocol` o estrategia registrada. Un
+  nuevo formato o regla debe agregar una implementación, no un nuevo bloque
+  `if/elif` dentro del código existente.
+- **L — Sustitución de Liskov:** toda subclase o implementación debe respetar el
+  contrato de la abstracción: mismos tipos de entrada/salida, mismas garantías y
+  errores documentados. No cambies el significado del contrato en una subclase.
+- **I — Segregación de interfaces:** prefiere contratos pequeños y cohesivos
+  (`ExportadorReporte`, `LectorArchivo`, `Notificador`) antes que una clase
+  “God service” con decenas de métodos.
+- **D — Inversión de dependencias:** los servicios de alto nivel dependen de
+  abstracciones para integraciones externas (Excel, correo, almacenamiento,
+  relojes). Inyecta la dependencia por constructor o parámetro con una
+  implementación por defecto; en pruebas usa un doble o fake. El cableado
+  concreto se hace en la vista, configuración o composición, no dentro del
+  servicio.
+
+**Reglas de implementación**
+
+- `transaction.atomic()` y `select_for_update()` pertenecen al servicio, no a la
+  vista. Los selectores solo leen.
+- Los servicios no devuelven `HttpResponse` ni conocen códigos HTTP. Lanzan
+  excepciones de dominio; la capa HTTP las traduce a `400`, `403`, `404` o `409`.
+- Las consultas complejas y los filtros viven en `selectors.py` o en un manager
+  dedicado. Las vistas no repiten `.filter()` ni arman querysets de negocio.
+- Los filtros se validan en el borde HTTP (serializador o vista) y se aplican en
+  el selector. Evita N+1 con `select_related`/`prefetch_related` y verifica el
+  número de consultas en los casos críticos.
+- El acceso entre apps pasa por servicios o selectores del dominio dueño; no
+  dupliques reglas ni importes modelos de otra app para reimplementar su lógica.
+- No uses señales (`signals`) para esconder flujos de negocio. Si son necesarias
+  para un efecto transversal, documéntalo y pruébalo.
+- Un servicio no debe mezclar dos casos de uso. Como guía, una vista no debería
+  superar ~50 líneas; si ocurre, extrae la lógica al servicio o selector.
+- SOLID no significa sobreingeniería: no crees abstracciones sin una segunda
+  implementación, una necesidad real de prueba o un punto de extensión previsto.
+- Estas reglas aplican a código nuevo y a código que se modifique. No conviertas
+  un bugfix en un refactor masivo; la deuda existente se corrige en un issue
+  aparte y con pruebas de regresión.
+- Prohibido `except Exception: pass`, `print()` de depuración, credenciales
+  hardcodeadas y lógica de negocio en etiquetas de plantilla.
+
 ### Reglas de negocio que no se deben romper
 
 - Una pregunta tiene exactamente una opción correcta. Selección múltiple: 2–4
@@ -260,14 +327,19 @@ borres tablas para “resolver” un conflicto.
 
 ## 5. Verificación y feedback: puerta obligatoria antes de un PR
 
-Ejecuta **todos** estos comandos desde la raíz y corrige cualquier fallo antes
-de abrir o actualizar un PR:
+Esta puerta es **obligatoria y no negociable**. Ejecuta **todos** estos comandos
+desde la raíz, corrige cualquier fallo y adjunta la evidencia antes de abrir,
+actualizar o fusionar un PR:
 
 ```powershell
 python manage.py check --settings=saber_tyt.settings.test
 python manage.py makemigrations --check --dry-run --settings=saber_tyt.settings.test
 python manage.py test --settings=saber_tyt.settings.test
 ```
+
+Ningún agente puede declarar una tarea terminada ni pedir revisión si la suite
+falla, si se omitió su ejecución o si no puede mostrar la salida. “Los tests
+pasaban antes” no es evidencia suficiente.
 
 Recomendado además:
 
@@ -288,6 +360,8 @@ Criterios:
   Todo bugfix debe incluir una prueba de regresión que falle sin el arreglo.
 - Si el pipeline de CI falla, el merge queda bloqueado. No lo reintentes a
   ciegas: lee el log, reproduce localmente y corrige la causa.
+- Arquitectura: la vista solo maneja HTTP, la lógica está en `services.py`, las
+  consultas complejas en `selectors.py`/managers y no hay reglas duplicadas.
 
 ### Contrato de CI
 
@@ -309,7 +383,8 @@ Archivo: `.github/workflows/ci.yml`.
 ### Plantillas de issues
 
 - `.github/ISSUE_TEMPLATE/feature_request.md`: historia de usuario, contrato de
-  aceptación, filtros requeridos y checklist de pruebas.
+  aceptación, filtros requeridos, checklist de arquitectura SOLID y checklist de
+  pruebas.
 - `.github/ISSUE_TEMPLATE/bug_report.md`: matriz de reproducibilidad,
   comportamiento actual/esperado, traza de log y pruebas de regresión.
 
@@ -318,6 +393,8 @@ Archivo: `.github/workflows/ci.yml`.
 - [ ] El issue está enlazado y la rama cumple el formato.
 - [ ] El cambio es mínimo, revisado y sin secretos ni datos personales.
 - [ ] Migraciones incluidas y revisadas; `makemigrations --check` limpio.
+- [ ] Arquitectura SOLID revisada: sin Fat Views ni lógica de negocio en
+      modelos, plantillas o serializadores; servicios y selectores separados.
 - [ ] Pruebas nuevas/ajustadas y suite completa en verde.
 - [ ] Permisos y alcances validados en el servidor.
 - [ ] Documentación (`README.md`, este archivo o docstrings) actualizada si

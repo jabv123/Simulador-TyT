@@ -78,13 +78,41 @@ haya coincidencias.
 
 - **Endpoints / rutas:**
 - **Modelos y migraciones:**
-- **Serializadores / servicios:**
+- **Selectores / managers:**
+- **Servicios y casos de uso:**
+- **Serializadores:**
 - **Permisos y alcances:**
 - **Frontend / plantillas:**
 - **Impacto en datos existentes:**
 
-## 7. Checklist de pruebas unitarias
+## 7. Impacto arquitectónico y SOLID
 
+**Capas afectadas:** <!-- models | selectors/managers | services | serializers | views | templates -->
+
+**Justificación de la estructura:** <!-- Por qué esta división es la mínima y correcta. -->
+
+- [ ] **S:** cada caso de uso está en un servicio; la vista solo maneja HTTP.
+- [ ] **O:** la funcionalidad se extiende agregando una implementación, sin
+      nuevos bloques `if/elif` en código existente.
+- [ ] **L:** las subclases o implementaciones respetan el contrato de la
+      abstracción (entradas, salidas y errores).
+- [ ] **I:** los contratos son pequeños y cohesivos; no hay “God services”.
+- [ ] **D:** las integraciones externas se inyectan detrás de una abstracción.
+- [ ] Las consultas complejas viven en `selectors.py` o en un manager dedicado.
+- [ ] Las transacciones y las excepciones de dominio viven en `services.py`.
+- [ ] No hay lógica de negocio en modelos, serializadores, vistas ni plantillas.
+- [ ] No hay N+1: se usan `select_related` / `prefetch_related` cuando aplica.
+- [ ] Si se modifica código existente, se justifica por qué no puede resolverse
+      mediante extensión.
+- [ ] Deuda técnica o excepciones a estas reglas: <!-- justificar o "Ninguna" -->
+
+## 8. Checklist de pruebas unitarias
+
+- [ ] Servicio: caso de uso, transacción, cálculos y excepciones de dominio.
+- [ ] Selector/manager: filtros y consultas complejas, sin escrituras.
+- [ ] Contrato de estrategia/exportador: implementaciones intercambiables (si aplica).
+- [ ] Vista: delega en el servicio/selector y responde correctamente, sin lógica
+      de negocio propia.
 - [ ] Modelo/servicio: validaciones y reglas de negocio del cambio.
 - [ ] Endpoint: caso feliz con datos válidos.
 - [ ] Endpoint: sin resultados devuelve `200` y lista vacía.
@@ -102,7 +130,7 @@ haya coincidencias.
 - [ ] Regresión de funcionalidades existentes del módulo.
 - [ ] Migración probada sobre base existente (si aplica).
 
-## 8. Verificación obligatoria
+## 9. Verificación obligatoria
 
 ```powershell
 python manage.py check --settings=saber_tyt.settings.test
@@ -113,16 +141,18 @@ python manage.py test --settings=saber_tyt.settings.test
 - [ ] Los tres comandos terminan sin errores.
 - [ ] Salida de pruebas adjunta en el PR (cantidad de tests y `OK`).
 - [ ] CI en verde y `Testing Gatekeeper` aprobado.
+- [ ] La tarea no se marca como terminada si la suite falló o no se ejecutó.
 
-## 9. Definición de terminado
+## 10. Definición de terminado
 
 - [ ] Contrato de aceptación implementado y verificado.
+- [ ] Arquitectura SOLID revisada y sin Fat Views ni lógica en plantillas.
 - [ ] Pruebas nuevas/ajustadas incluidas en el mismo PR.
 - [ ] Permisos y filtros validados en el servidor.
 - [ ] Migraciones incluidas y revisadas (si aplica).
 - [ ] Documentación/README actualizados (si cambió la API).
 - [ ] Sin secretos, datos personales ni artefactos generados en el PR.
 
-## 10. Riesgos y notas
+## 11. Riesgos y notas
 
 <!-- Impacto, rollback, compatibilidad con datos existentes, dudas abiertas. -->

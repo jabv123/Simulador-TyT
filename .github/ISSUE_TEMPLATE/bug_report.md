@@ -108,8 +108,10 @@ Content-Type: application/json
 
 <!-- Archivos, funciones, consultas, migraciones o dependencias sospechosas. -->
 
+- **Capa afectada:** <!-- model | selector/manager | service | serializer | view | template -->
 - **Archivo(s) probable(s):**
 - **Hipótesis:**
+- **¿El origen parece una violación de separación de capas o SOLID?** <!-- Sí/No; explica -->
 - **Cómo validarla:**
 
 ## 7. Criterios de aceptación del arreglo
@@ -127,6 +129,9 @@ Content-Type: application/json
 
 - [ ] Prueba que reproduce el bug y falla antes del arreglo.
 - [ ] La misma prueba pasa después del arreglo.
+- [ ] Prueba a nivel de servicio/selector (si la lógica lo amerita).
+- [ ] El arreglo no introduce lógica de negocio en vistas, serializadores ni
+      plantillas.
 - [ ] Caso borde relacionado cubierto.
 - [ ] Permisos/alcances verificados (si aplica).
 - [ ] Validaciones de modelo/serializador verificadas (si aplica).
