@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "bugfix/**"
+      - "chore/**"
+  pull_request:
+    branches:
+      - main
+      - "feature/**"
+      - "bugfix/**"
+      - "chore/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Valores ficticios: base.py los exige al importarse, aunque las pruebas usan SQLite.
+  DJANGO_SECRET_KEY: ci-only-insecure-secret-key
+  DJANGO_DEBUG: "False"
+  DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,testserver"
+  DJANGO_TIME_ZONE: "America/Bogota"
+  DB_NAME: simulador_tyt_ci
+  DB_USER: ci_user
+  DB_PASSWORD: ci_password
+  DB_HOST: "127.0.0.1"
+  DB_PORT: "3306"
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  quality-gate:
+    name: Verificación Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # Paso 1 · Infraestructura y conectores
+      - name: "Paso 1 · Instalar infraestructura y dependencias"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            default-libmysqlclient-dev \
+            build-essential \
+            pkg-config
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      # Paso 2 · Contexto y verificación de sintaxis
+      - name: "Paso 2 · Validar dependencias, imports y sintaxis"
+        run: |
+          python -m pip check
+          python -m pip list
+          python -c "import django, rest_framework, rest_framework_simplejwt, MySQLdb, openpyxl, dotenv; print('Dependencias e imports OK')"
+          python -m compileall -q apps saber_tyt manage.py
+          python manage.py check --settings=saber_tyt.settings.test
+          python manage.py makemigrations --check --dry-run --settings=saber_tyt.settings.test
+
+      # Paso 3 · Feedback y Testing Gatekeeper
+      - name: "Paso 3 · Ejecutar suite de pruebas (gatekeeper)"
+        run: python manage.py test --settings=saber_tyt.settings.test
+
+  testing-gatekeeper:
+    name: Testing Gatekeeper
+    runs-on: ubuntu-latest
+    needs: quality-gate
+    if: always()
+
+    steps:
+      - name: Verificar resultado de la matriz
+        run: |
+          echo "Resultado de la matriz: ${{ needs.quality-gate.result }}"
+          if [ "${{ needs.quality-gate.result }}" != "success" ]; then
+            echo "::error::La suite de pruebas falló. El merge queda bloqueado."
+            exit 1
+          fi
+          echo "Todas las versiones de Python pasaron. Merge habilitado."
