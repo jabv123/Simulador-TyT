@@ -1,0 +1,533 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <main class="layout reports-layout">
+    <section class="panel report-hero">
+      <div class="report-header-row">
+        <div>
+          <h1>Consultas y reportes</h1>
+          <p class="muted">Aprobación: nota ≥ calificación de aprobación del cuestionario.</p>
+        </div>
+        <div class="report-actions">
+          <a class="button button-primary" href="{% url 'reports:exportar' %}?{{ request.GET.urlencode }}">Exportar a Excel</a>
+        </div>
+      </div>
+      <form method="get" class="form-grid" id="report-filter-form">
+        <div>
+          <label for="anio">Año</label>
+          <select id="anio" name="anio">
+            <option value="">Todos</option>
+            {% for anio in anios %}
+              <option value="{{ anio }}" {% if request.GET.anio == anio|stringformat:'s' %}selected{% endif %}>{{ anio }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="periodo">Período</label>
+          <select id="periodo" name="periodo">
+            <option value="">Todos</option>
+            {% for periodo in periodos %}
+              <option value="{{ periodo.value }}" {% if request.GET.periodo == periodo.value|stringformat:'s' %}selected{% endif %}>{{ periodo.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="curso">Curso / simulacro</label>
+          <select id="curso" name="curso">
+            <option value="">Todos</option>
+            {% for curso in cursos %}
+              <option value="{{ curso.id }}" {% if request.GET.curso == curso.id|stringformat:'s' %}selected{% endif %}>{{ curso.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="eje">Eje temático</label>
+          <select id="eje" name="eje">
+            <option value="">Todos</option>
+            {% for eje in ejes %}
+              <option value="{{ eje.id }}" {% if request.GET.eje == eje.id|stringformat:'s' %}selected{% endif %}>{{ eje.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="estudiante">Estudiante</label>
+          <input id="estudiante" name="estudiante" type="text" value="{{ request.GET.estudiante }}" placeholder="Buscar por nombre o código">
+        </div>
+        <div>
+          <label for="tipo">Vista de resumen</label>
+          <select id="tipo" name="tipo">
+            <option value="general" {% if tipo == 'general' %}selected{% endif %}>General</option>
+            <option value="curso" {% if tipo == 'curso' %}selected{% endif %}>Por curso</option>
+            <option value="estudiante" {% if tipo == 'estudiante' %}selected{% endif %}>Por estudiante</option>
+            <option value="eje" {% if tipo == 'eje' %}selected{% endif %}>Por eje</option>
+          </select>
+        </div>
+        <div>
+          <label for="query">Buscar</label>
+          <input id="query" name="query" type="text" value="{{ request.GET.query }}" placeholder="Buscar resultados">
+        </div>
+        <div>
+          <label for="orden">Ordenar por</label>
+          <select id="orden" name="orden">
+            <option value="fecha" {% if orden == 'fecha' %}selected{% endif %}>Fecha</option>
+            <option value="usuario" {% if orden == 'usuario' %}selected{% endif %}>Estudiante</option>
+            <option value="curso" {% if orden == 'curso' %}selected{% endif %}>Curso</option>
+            <option value="nota" {% if orden == 'nota' %}selected{% endif %}>Nota</option>
+            <option value="estado" {% if orden == 'estado' %}selected{% endif %}>Estado</option>
+          </select>
+        </div>
+        <div>
+          <label for="direccion">Dirección</label>
+          <select id="direccion" name="direccion">
+            <option value="desc" {% if direccion == 'desc' %}selected{% endif %}>Descendente</option>
+            <option value="asc" {% if direccion == 'asc' %}selected{% endif %}>Ascendente</option>
+          </select>
+        </div>
+        <div class="button-row">
+          <button type="submit" class="button button-primary">Consultar</button>
+          <button type="button" class="button button-quiet" id="clear-filters">Limpiar filtros</button>
+        </div>
+      </form>
+      <div class="filter-summary" id="active-filters" aria-live="polite"></div>
+    </section>
+
+    <section class="stats-grid">
+      <article class="stat-card">
+        <h3>Estudiantes distintos</h3>
+        <strong>{{ indicadores.estudiantes_distintos }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>Intentos finalizados</h3>
+        <strong>{{ indicadores.intentos_finalizados }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>Promedio</h3>
+        <strong>{{ indicadores.promedio|floatformat:2 }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>Nota mínima</h3>
+        <strong>{{ indicadores.nota_minima|default:'N/A' }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>Nota máxima</h3>
+        <strong>{{ indicadores.nota_maxima|default:'N/A' }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>% aprobación</h3>
+        <strong>{{ indicadores.porcentaje_aprobacion|floatformat:2 }}%</strong>
+      </article>
+    </section>
+
+    {% if tipo %}
+      <section class="panel summary-panel">
+        <div class="section-header-row">
+          <div>
+            <h2>Resumen ejecutivo · {{ tipo }}</h2>
+            {% if tipo == 'curso' %}<p class="muted">Indicadores clave de rendimiento por cuestionario.</p>{% elif tipo == 'estudiante' %}<p class="muted">Desempeño académico consolidado por estudiante.</p>{% elif tipo == 'eje' %}<p class="muted">Rendimiento por eje temático y nivel de dificultad.</p>{% else %}<p class="muted">Resumen administrativo del rendimiento general y principales tendencias.</p>{% endif %}
+          </div>
+        </div>
+
+        {% if resumen and resumen.kpis %}
+          <div class="executive-summary-strip">
+            <div class="executive-summary-item">
+              <span>Promedio general</span>
+              <strong>{{ resumen.kpis.promedio|floatformat:2 }}</strong>
+            </div>
+            <div class="executive-summary-item success">
+              <span>Aprobados</span>
+              <strong>{{ resumen.kpis.aprobados }}</strong>
+            </div>
+            <div class="executive-summary-item warning">
+              <span>Requieren apoyo</span>
+              <strong>{{ resumen.kpis.no_aprobados }}</strong>
+            </div>
+            <div class="executive-summary-item info">
+              <span>% aprobación</span>
+              <strong>{{ resumen.kpis.porcentaje_aprobacion|floatformat:2 }}%</strong>
+            </div>
+          </div>
+        {% endif %}
+
+        {% if tipo == 'curso' %}
+          {% if resumen %}
+            <table>
+              <thead><tr><th>Curso</th><th>Intentos</th><th>Estudiantes</th><th>Aprobados</th><th>Promedio</th></tr></thead>
+              <tbody>
+                {% for item in resumen %}
+                  <tr>
+                    <td>{{ item.nombre }}</td>
+                    <td>{{ item.intentos }}</td>
+                    <td>{{ item.estudiantes }}</td>
+                    <td>{{ item.aprobados }}</td>
+                    <td>{{ item.promedio|floatformat:2 }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="5">Sin datos</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+        {% elif tipo == 'estudiante' %}
+          {% if resumen %}
+            <table>
+              <thead><tr><th>Estudiante</th><th>Identificación</th><th>Intentos</th><th>Aprobados</th><th>Promedio</th></tr></thead>
+              <tbody>
+                {% for item in resumen %}
+                  <tr>
+                    <td>{{ item.nombre }}</td>
+                    <td>{{ item.identificacion }}</td>
+                    <td>{{ item.intentos }}</td>
+                    <td>{{ item.aprobados }}</td>
+                    <td>{{ item.promedio|floatformat:2 }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="5">Sin datos</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+        {% elif tipo == 'eje' %}
+          {% if resumen %}
+            <table>
+              <thead><tr><th>Eje</th><th>Preguntas</th><th>Intentos</th><th>Promedio</th></tr></thead>
+              <tbody>
+                {% for item in resumen %}
+                  <tr>
+                    <td>{{ item.nombre }}</td>
+                    <td>{{ item.preguntas }}</td>
+                    <td>{{ item.intentos }}</td>
+                    <td>{{ item.promedio|floatformat:2 }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="4">Sin datos</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+        {% else %}
+          {% if resumen and resumen.top_cursos %}
+            <div class="summary-grid">
+              <div class="mini-panel">
+                <span class="mini-label">Promedio general</span>
+                <strong>{{ resumen.kpis.promedio|floatformat:2 }}</strong>
+              </div>
+              <div class="mini-panel success">
+                <span class="mini-label">Aprobados</span>
+                <strong>{{ resumen.kpis.aprobados }}</strong>
+              </div>
+              <div class="mini-panel warning">
+                <span class="mini-label">No aprobados</span>
+                <strong>{{ resumen.kpis.no_aprobados }}</strong>
+              </div>
+              <div class="mini-panel info">
+                <span class="mini-label">% aprobación</span>
+                <strong>{{ resumen.kpis.porcentaje_aprobacion|floatformat:2 }}%</strong>
+              </div>
+              <div class="mini-panel">
+                <span class="mini-label">Mejor curso</span>
+                <strong>{% if resumen.mejor_curso %}{{ resumen.mejor_curso.nombre }}{% else %}N/A{% endif %}</strong>
+              </div>
+              <div class="mini-panel">
+                <span class="mini-label">Eje más fuerte</span>
+                <strong>{% if resumen.mejor_eje %}{{ resumen.mejor_eje.nombre }}{% else %}N/A{% endif %}</strong>
+              </div>
+            </div>
+
+            <div class="ranking-grid">
+              <div class="ranking-box">
+                <h3>Top cursos</h3>
+                <ol>
+                  {% for item in resumen.top_cursos %}
+                    <li>
+                      <span>{{ item.nombre }}</span>
+                      <strong>{{ item.promedio|floatformat:2 }}</strong>
+                    </li>
+                  {% empty %}
+                    <li><span>Sin datos</span></li>
+                  {% endfor %}
+                </ol>
+              </div>
+
+              <div class="ranking-box">
+                <h3>Top estudiantes</h3>
+                <ol>
+                  {% for item in resumen.top_estudiantes %}
+                    <li>
+                      <span>{{ item.nombre }}</span>
+                      <strong>{{ item.promedio|floatformat:2 }}</strong>
+                    </li>
+                  {% empty %}
+                    <li><span>Sin datos</span></li>
+                  {% endfor %}
+                </ol>
+              </div>
+
+              <div class="ranking-box">
+                <h3>Ejes temáticos</h3>
+                <ol>
+                  {% for item in resumen.top_ejes %}
+                    <li>
+                      <span>{{ item.nombre }}</span>
+                      <strong>{{ item.promedio|floatformat:2 }}</strong>
+                    </li>
+                  {% empty %}
+                    <li><span>Sin datos</span></li>
+                  {% endfor %}
+                </ol>
+              </div>
+            </div>
+          {% else %}
+            <p class="muted">Sin datos agregados para el resumen general.</p>
+          {% endif %}
+        {% endif %}
+      </section>
+    {% endif %}
+
+    <section class="panel">
+      <h2>Resultados</h2>
+      {% if tablas %}
+        <table>
+          <thead>
+            <tr>
+              <th>Estudiante</th>
+              <th>Identificación</th>
+              <th>Curso</th>
+              <th>Simulacro</th>
+              <th>Fecha</th>
+              <th>Nota / 5,0</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for fila in tablas %}
+              <tr>
+                <td>{{ fila.usuario }}</td>
+                <td>{{ fila.identificacion }}</td>
+                <td>{{ fila.curso }}</td>
+                <td>{{ fila.simulacro }}</td>
+                <td>{{ fila.fecha }}</td>
+                <td>{{ fila.nota }}</td>
+                <td>{{ fila.estado }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {% if paginacion.total_paginas > 1 %}
+          <div class="pagination">
+            {% if paginacion.page > 1 %}
+              <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}&page={{ paginacion.page|add:'-1' }}">Anterior</a>
+            {% endif %}
+            <span>Página {{ paginacion.page }} de {{ paginacion.total_paginas }}</span>
+            {% if paginacion.page < paginacion.total_paginas %}
+              <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}&page={{ paginacion.page|add:'1' }}">Siguiente</a>
+            {% endif %}
+          </div>
+        {% endif %}
+      {% else %}
+        <p>Sin resultados.</p>
+      {% endif %}
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      const form = document.getElementById('report-filter-form');
+      const anioSelect = document.getElementById('anio');
+      const periodoSelect = document.getElementById('periodo');
+      const cursoSelect = document.getElementById('curso');
+      const ejeSelect = document.getElementById('eje');
+      const estudianteInput = document.getElementById('estudiante');
+      const clearBtn = document.getElementById('clear-filters');
+      const activeFilters = document.getElementById('active-filters');
+      const apiBase = '/reportes/api';
+
+      function renderActiveFilters() {
+        const params = new URLSearchParams(window.location.search);
+        const labels = [
+          ['anio', 'Año'],
+          ['periodo', 'Período'],
+          ['curso', 'Curso'],
+          ['eje', 'Eje'],
+          ['tipo', 'Resumen'],
+          ['query', 'Búsqueda'],
+          ['estudiante', 'Estudiante'],
+        ];
+        const chips = [];
+
+        labels.forEach(([key, label]) => {
+          const field = form.elements[key];
+          const value = params.get(key) || field?.value || '';
+          if (!value) return;
+          const selectedText = field && field.tagName === 'SELECT'
+            ? field.selectedOptions[0]?.textContent?.trim() || ''
+            : '';
+          const pretty = (selectedText || value).length > 22
+            ? `${(selectedText || value).slice(0, 22)}…`
+            : (selectedText || value);
+          chips.push(`<span class="filter-chip"><strong>${label}:</strong> ${pretty}</span>`);
+        });
+
+        if (!chips.length) {
+          chips.push('<span class="filter-chip is-empty">Todos los registros</span>');
+        }
+
+        activeFilters.innerHTML = chips.join('');
+      }
+
+      const option = (value, label, selected = false) => {
+        const el = document.createElement('option');
+        el.value = value;
+        el.textContent = label;
+        if (selected) el.selected = true;
+        return el;
+      };
+
+      function resetSelect(select, label = 'Todos') {
+        select.innerHTML = '';
+        select.appendChild(option('', label));
+      }
+
+      function updateChildOptions(select, items, label = 'Todos') {
+        resetSelect(select, label);
+        items.forEach((item) => {
+          const value = item.value ?? item.id ?? item.pk ?? '';
+          const text = item.label ?? item.nombre ?? item.codigo ?? item.name ?? value;
+          if (value !== '') {
+            select.appendChild(option(String(value), String(text)));
+          }
+        });
+      }
+
+      function setSelectValue(select, value) {
+        if (!value) {
+          select.value = '';
+          return;
+        }
+        const match = Array.from(select.options).find((optionEl) => String(optionEl.value) === String(value));
+        if (match) {
+          select.value = String(value);
+        } else {
+          select.value = '';
+        }
+      }
+
+      async function fetchJson(url) {
+        const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!response.ok) throw new Error('No se pudieron cargar los filtros.');
+        return response.json();
+      }
+
+      async function refreshPeriodos() {
+        const anio = anioSelect.value;
+        resetSelect(periodoSelect);
+        if (!anio) {
+          return;
+        }
+        const data = await fetchJson(`${apiBase}/periodos/?anio=${encodeURIComponent(anio)}`);
+        updateChildOptions(periodoSelect, data, 'Todos');
+        const selectedPeriodo = new URLSearchParams(window.location.search).get('periodo');
+        setSelectValue(periodoSelect, selectedPeriodo || '');
+      }
+
+      async function refreshCursos() {
+        const anio = anioSelect.value;
+        const periodo = periodoSelect.value;
+        resetSelect(cursoSelect);
+        const params = new URLSearchParams();
+        if (anio) params.set('anio', anio);
+        if (periodo) params.set('periodo', periodo);
+        const url = `${apiBase}/cursos/?${params.toString()}`;
+        const data = await fetchJson(url);
+        updateChildOptions(cursoSelect, data, 'Todos');
+        const selectedCurso = new URLSearchParams(window.location.search).get('curso');
+        setSelectValue(cursoSelect, selectedCurso || '');
+      }
+
+      async function refreshEjes() {
+        const anio = anioSelect.value;
+        const periodo = periodoSelect.value;
+        const curso = cursoSelect.value;
+        const params = new URLSearchParams();
+        if (anio) params.set('anio', anio);
+        if (periodo) params.set('periodo', periodo);
+        if (curso) params.set('curso', curso);
+        const data = await fetchJson(`${apiBase}/ejes/?${params.toString()}`);
+        updateChildOptions(ejeSelect, data, 'Todos');
+        const selectedEje = new URLSearchParams(window.location.search).get('eje');
+        setSelectValue(ejeSelect, selectedEje || '');
+      }
+
+      async function refreshEstudiantes() {
+        const curso = cursoSelect.value;
+        const texto = estudianteInput.value.trim();
+        const params = new URLSearchParams();
+        if (curso) params.set('curso', curso);
+        if (texto) params.set('q', texto);
+        const data = await fetchJson(`${apiBase}/estudiantes/?${params.toString()}`);
+        const currentValue = estudianteInput.value.trim();
+        if (!data.length && currentValue) {
+          estudianteInput.value = currentValue;
+          return;
+        }
+        if (!curso && !texto) {
+          return;
+        }
+      }
+
+      async function refreshFiltersCascade() {
+        try {
+          await refreshPeriodos();
+          await refreshCursos();
+          await refreshEjes();
+          await refreshEstudiantes();
+      renderActiveFilters();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  anioSelect.addEventListener('change', async () => {
+    periodoSelect.value = '';
+    cursoSelect.value = '';
+    ejeSelect.value = '';
+    estudianteInput.value = '';
+    await refreshFiltersCascade();
+  });
+
+  periodoSelect.addEventListener('change', async () => {
+    cursoSelect.value = '';
+    ejeSelect.value = '';
+    estudianteInput.value = '';
+    await refreshFiltersCascade();
+  });
+
+  cursoSelect.addEventListener('change', async () => {
+    ejeSelect.value = '';
+    estudianteInput.value = '';
+    await refreshFiltersCascade();
+  });
+
+  estudianteInput.addEventListener('input', () => {
+    window.clearTimeout(studentSearchTimer);
+    studentSearchTimer = window.setTimeout(() => {
+      refreshEstudiantes();
+      renderActiveFilters();
+    }, 250);
+  });
+
+  let studentSearchTimer = null;
+  clearBtn.addEventListener('click', () => {
+    form.reset();
+    window.location.href = '/reportes/';
+  });
+
+  form.addEventListener('submit', () => {
+    renderActiveFilters();
+  });
+
+  renderActiveFilters();
+  refreshFiltersCascade();
+    })();
+  </script>
+{% endblock %}

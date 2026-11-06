@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "apps.attempts.apps.AttemptsConfig",
     "apps.imports.apps.ImportsConfig",
     "apps.core.apps.CoreConfig",
+    "apps.reports.apps.ReportsConfig",
 ]
 
 MIDDLEWARE = [

@@ -26,6 +26,7 @@ import {
   const loginForm = document.querySelector("#login-form");
   const logoutButton = document.querySelector("#logout-button");
   const accountName = document.querySelector("#account-name");
+  const sidebarToggle = document.querySelector("#sidebar-toggle");
   const endpoints = {
     profile: "/api/auth/me/",
     users: "/api/usuarios/",
@@ -49,10 +50,75 @@ import {
   let questionFilters = { search: "", categoria: "", tipo: "", estado: "" };
   let resultsFilters = { cuestionario_id: "", usuario_id: "" };
 
+  if (sidebarToggle && dashboardView) {
+    sidebarToggle.addEventListener("click", () => {
+      dashboardView.classList.toggle("sidebar-collapsed");
+      const isCollapsed = dashboardView.classList.contains("sidebar-collapsed");
+      sidebarToggle.textContent = isCollapsed ? "⟩" : "⟨";
+      sidebarToggle.setAttribute("aria-label", isCollapsed ? "Expandir panel" : "Contraer panel");
+      sidebarToggle.setAttribute("title", isCollapsed ? "Expandir panel" : "Contraer panel");
+    });
+  }
+
   const escapeHtml = (value) =>
     String(value ?? "").replace(/[&<>"']/g, (character) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     })[character]);
+
+  const formatImportDetail = (value) => {
+    if (!value) return "—";
+    const normalized = String(value).trim();
+    if (!normalized || normalized === "—") return "—";
+
+    try {
+      const parsed = JSON.parse(normalized);
+      if (parsed && typeof parsed === "object") {
+        const groups = [
+          ["duplicadas", "Duplicadas"],
+          ["errores", "Con errores"],
+          ["validas", "Válidas"],
+        ]
+          .map(([key, title]) => {
+            const entries = Array.isArray(parsed[key]) ? parsed[key] : [];
+            if (!entries.length) return "";
+            const items = entries.slice(0, 5).map((entry) => {
+              if (typeof entry === "string") return escapeHtml(entry);
+              if (typeof entry === "object") {
+                const row = entry.fila ? `Fila ${escapeHtml(entry.fila)}: ` : "";
+                return `${row}${escapeHtml(entry.motivo || entry.error || entry.datos?.enunciado || "Registro inválido")}`;
+              }
+              return escapeHtml(String(entry));
+            }).join("<br>");
+            return `<div class="import-detail-block"><strong>${title}</strong><div>${items}</div></div>`;
+          })
+          .filter(Boolean)
+          .join("");
+        if (groups) return groups;
+      }
+    } catch (error) {
+      return escapeHtml(normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized);
+    }
+
+    return escapeHtml(normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized);
+  };
+
+  const getImportHistoryKind = (value) => {
+    if (!value) return "all";
+    const normalized = String(value).trim();
+    if (!normalized || normalized === "—") return "all";
+
+    try {
+      const parsed = JSON.parse(normalized);
+      if (!parsed || typeof parsed !== "object") return "all";
+      if (Array.isArray(parsed.errores) && parsed.errores.length) return "errores";
+      if (Array.isArray(parsed.duplicadas) && parsed.duplicadas.length) return "duplicadas";
+      if (Array.isArray(parsed.validas) && parsed.validas.length) return "validas";
+    } catch (error) {
+      return "all";
+    }
+
+    return "all";
+  };
 
   async function fetchAllPages(endpoint, query = {}) {
     const records = [];
@@ -762,10 +828,46 @@ import {
         <label>Libro Excel (.xlsx)<input class="file-input" name="archivo" type="file" accept=".xlsx" required></label>
         <div class="toolbar"><button class="button button-primary">Previsualizar filas</button><button id="confirm-import" class="button button-primary" type="button" hidden>Confirmar importación</button></div>
       </form><div id="import-preview"></div></section>` : ""}
-      ${canViewHistory ? `<section class="section"><h2>Historial de importaciones</h2>${renderTable(
-        ["Archivo", "Fecha", "Correctas", "Fallidas", "Resultado", "Detalle"],
-        history.map((item) => `<tr><td>${escapeHtml(item.nombre_archivo)}</td><td>${new Date(item.fecha_importacion).toLocaleString()}</td><td>${item.registros_exitosos}</td><td>${item.registros_fallidos}</td><td>${escapeHtml(item.estado_resultado)}</td><td><pre>${escapeHtml(item.detalles_error || "—")}</pre></td></tr>`)
-      )}</section>` : ""}`;
+      ${canViewHistory ? `<section class="section"><h2>Historial de importaciones</h2>
+        <div class="history-tabs" role="tablist">
+          <button type="button" class="history-tab active" data-history-filter="all" role="tab" aria-selected="true">Todas</button>
+          <button type="button" class="history-tab" data-history-filter="validas" role="tab" aria-selected="false">Válidas</button>
+          <button type="button" class="history-tab" data-history-filter="duplicadas" role="tab" aria-selected="false">Duplicadas</button>
+          <button type="button" class="history-tab" data-history-filter="errores" role="tab" aria-selected="false">Con errores</button>
+        </div>
+        ${renderTable(
+          ["Archivo", "Fecha", "Correctas", "Fallidas", "Resultado", "Detalle"],
+          history.map((item) => `
+            <tr data-table-row data-history-kind="${getImportHistoryKind(item.detalles_error)}">
+              <td>${escapeHtml(item.nombre_archivo)}</td>
+              <td>${new Date(item.fecha_importacion).toLocaleString()}</td>
+              <td>${item.registros_exitosos}</td>
+              <td>${item.registros_fallidos}</td>
+              <td>${escapeHtml(item.estado_resultado)}</td>
+              <td class="import-detail-cell">
+                <details class="import-detail">
+                  <summary>Ver detalle</summary>
+                  <div class="import-detail-content">${formatImportDetail(item.detalles_error)}</div>
+                </details>
+              </td>
+            </tr>`)
+        )}
+      </section>` : ""}`;
+
+    document.querySelectorAll("[data-history-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const selected = button.dataset.historyFilter;
+        document.querySelectorAll("[data-history-filter]").forEach((tab) => {
+          const active = tab === button;
+          tab.classList.toggle("active", active);
+          tab.setAttribute("aria-selected", String(active));
+        });
+        document.querySelectorAll("[data-table-row]").forEach((row) => {
+          const matches = selected === "all" || row.dataset.historyKind === selected;
+          row.hidden = !matches;
+        });
+      });
+    });
     const formElement = document.querySelector("#import-form");
     if (!formElement) return;
     const confirmButton = document.querySelector("#confirm-import");

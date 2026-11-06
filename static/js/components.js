@@ -3,9 +3,14 @@ export function renderTable(headers, rows, { searchable = true } = {}) {
   const search = searchable
     ? '<label class="table-search">Buscar en esta tabla<input type="search" data-table-search placeholder="Escribe para filtrar resultados"></label>'
     : "";
-  const taggedRows = rows.map((row) =>
-    row.replace("<tr>", '<tr data-table-row>')
-  );
+  const headersText = headers.join(" ");
+  const taggedRows = rows.map((row) => {
+    const plainText = row.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    return row.replace(
+      "<tr>",
+      `<tr data-table-row data-table-search-text="${escapeHtml(`${headersText} ${plainText}`)}">`
+    );
+  });
   return `${search}<div class="table-wrap"><table><thead><tr>${headers.map((item) => `<th>${escapeHtml(item)}</th>`).join("")}</tr></thead><tbody>${taggedRows.join("")}</tbody></table></div>`;
 }
 
@@ -73,7 +78,8 @@ export function initializeFormValidation(root = document) {
       const table = event.target.closest(".table-search").nextElementSibling;
       const term = event.target.value.trim().toLocaleLowerCase();
       table.querySelectorAll("[data-table-row]").forEach((row) => {
-        row.hidden = !row.textContent.toLocaleLowerCase().includes(term);
+        const rowSearchText = (row.dataset.tableSearchText || row.textContent || "").toLocaleLowerCase();
+        row.hidden = !rowSearchText.includes(term);
       });
       return;
     }
