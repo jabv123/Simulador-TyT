@@ -86,7 +86,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "es-co"
-TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "America/Bogota")
+TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
 
@@ -105,6 +105,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DATETIME_FORMAT": "iso-8601",
+    "DATE_FORMAT": "iso-8601",
+    "TIME_FORMAT": "iso-8601",
 }
 
 SIMPLE_JWT = {

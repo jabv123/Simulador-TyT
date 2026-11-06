@@ -12,6 +12,7 @@ import {
   renderTable,
   showToast,
 } from "./components.js";
+import { formatDateParts, formatDateTime } from "./dateUtils.js";
 
 (() => {
   "use strict";
@@ -715,7 +716,7 @@ import {
       </form></section>
       <section class="section"><h2>Cuestionarios creados</h2>${renderTable(
         ["Nombre", "Apertura", "Cierre", "Estado", "Preguntas", "Acciones"],
-        quizzes.map((quiz) => `<tr><td>${escapeHtml(quiz.nombre)}</td><td>${new Date(quiz.fecha_apertura).toLocaleString()}</td><td>${new Date(quiz.fecha_cierre).toLocaleString()}</td><td><span class="badge">${escapeHtml(quiz.estado_efectivo || quiz.estado)}</span></td><td>${quiz.preguntas.length}</td><td>${hasPermission("CUESTIONARIOS", "EDITAR") ? `<button class="button button-quiet" data-edit-quiz="${quiz.id}">Editar</button>` : ""}${hasPermission("CUESTIONARIOS", "EDITAR") ? `<button class="button button-quiet" data-publish-quiz="${quiz.id}">Publicar</button>` : ""}${hasPermission("CUESTIONARIOS", "DESACTIVAR") ? `<button class="button button-quiet" data-disable-quiz="${quiz.id}">Desactivar</button>` : ""}</td></tr>`)
+        quizzes.map((quiz) => `<tr><td>${escapeHtml(quiz.nombre)}</td><td>${formatDateTime(quiz.fecha_apertura)}</td><td>${formatDateTime(quiz.fecha_cierre)}</td><td><span class="badge">${escapeHtml(quiz.estado_efectivo || quiz.estado)}</span></td><td>${quiz.preguntas.length}</td><td>${hasPermission("CUESTIONARIOS", "EDITAR") ? `<button class="button button-quiet" data-edit-quiz="${quiz.id}">Editar</button>` : ""}${hasPermission("CUESTIONARIOS", "EDITAR") ? `<button class="button button-quiet" data-publish-quiz="${quiz.id}">Publicar</button>` : ""}${hasPermission("CUESTIONARIOS", "DESACTIVAR") ? `<button class="button button-quiet" data-disable-quiz="${quiz.id}">Desactivar</button>` : ""}</td></tr>`)
       )}</section>`;
     const form = document.querySelector("#quiz-form");
     form.closest(".card").hidden = !canConfigure;
@@ -837,20 +838,28 @@ import {
         </div>
         ${renderTable(
           ["Archivo", "Fecha", "Correctas", "Fallidas", "Resultado", "Detalle"],
-          history.map((item) => `
-            <tr data-table-row data-history-kind="${getImportHistoryKind(item.detalles_error)}">
-              <td>${escapeHtml(item.nombre_archivo)}</td>
-              <td>${new Date(item.fecha_importacion).toLocaleString()}</td>
-              <td>${item.registros_exitosos}</td>
-              <td>${item.registros_fallidos}</td>
-              <td>${escapeHtml(item.estado_resultado)}</td>
-              <td class="import-detail-cell">
-                <details class="import-detail">
-                  <summary>Ver detalle</summary>
-                  <div class="import-detail-content">${formatImportDetail(item.detalles_error)}</div>
-                </details>
-              </td>
-            </tr>`)
+          history.map((item) => {
+            const { date, time } = formatDateParts(item.fecha_importacion);
+            return `
+              <tr data-table-row data-history-kind="${getImportHistoryKind(item.detalles_error)}">
+                <td class="filename-cell" title="${escapeHtml(item.nombre_archivo || "")}">
+                  <span class="filename-text">${escapeHtml(item.nombre_archivo)}</span>
+                </td>
+                <td class="date-cell" title="${escapeHtml(`${date} ${time}`)}">
+                  <span class="date-text">${date}</span>
+                  <span class="time-text">${time}</span>
+                </td>
+                <td>${item.registros_exitosos}</td>
+                <td>${item.registros_fallidos}</td>
+                <td>${escapeHtml(item.estado_resultado)}</td>
+                <td class="import-detail-cell">
+                  <details class="import-detail">
+                    <summary>Ver detalle</summary>
+                    <div class="import-detail-content">${formatImportDetail(item.detalles_error)}</div>
+                  </details>
+                </td>
+              </tr>`;
+          })
         )}
       </section>` : ""}`;
 
@@ -1103,7 +1112,7 @@ import {
       </form></section>` : ""}
       ${renderTable(
       ["Cuestionario", "Estudiante", "Intento", "Puntaje", "Calificación", "Aprobación", "Duración", "Estado", "Fecha", "Detalle"],
-      results.map((item) => `<tr><td>${escapeHtml(item.cuestionario_nombre)}</td><td>${escapeHtml(item.usuario_nombre)}</td><td>${item.numero_intento}</td><td>${escapeHtml(item.puntaje_obtenido ?? "En curso")}</td><td>${escapeHtml(item.calificacion_final ?? "—")}</td><td>${item.aprobado === null || item.aprobado === undefined ? "Pendiente" : item.aprobado ? "Aprobado" : "Reprobado"}</td><td>${item.duracion_segundos == null ? "—" : `${Math.floor(item.duracion_segundos / 60)} min ${item.duracion_segundos % 60} s`}</td><td>${escapeHtml(item.estado)}</td><td>${new Date(item.fecha_inicio).toLocaleString()}</td><td>${item.calificacion_final == null ? "—" : `<button class="button button-quiet" data-result="${item.id}">Revisar</button>`}</td></tr>`)
+      results.map((item) => `<tr><td>${escapeHtml(item.cuestionario_nombre)}</td><td>${escapeHtml(item.usuario_nombre)}</td><td>${item.numero_intento}</td><td>${escapeHtml(item.puntaje_obtenido ?? "En curso")}</td><td>${escapeHtml(item.calificacion_final ?? "—")}</td><td>${item.aprobado === null || item.aprobado === undefined ? "Pendiente" : item.aprobado ? "Aprobado" : "Reprobado"}</td><td>${item.duracion_segundos == null ? "—" : `${Math.floor(item.duracion_segundos / 60)} min ${item.duracion_segundos % 60} s`}</td><td>${escapeHtml(item.estado)}</td><td>${formatDateTime(item.fecha_inicio)}</td><td>${item.calificacion_final == null ? "—" : `<button class="button button-quiet" data-result="${item.id}">Revisar</button>`}</td></tr>`)
     )}`;
     pageContent.querySelector("#results-filter")?.addEventListener("submit", async (event) => {
       event.preventDefault();
