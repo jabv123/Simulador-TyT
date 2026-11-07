@@ -33,7 +33,8 @@ class PrevisualizacionImportacionSerializer(ArchivoImportacionSerializer):
     cuestionario_id = serializers.PrimaryKeyRelatedField(
         source="cuestionario",
         queryset=Cuestionario.objects.all(),
-        required=True,
+        required=False,
+        allow_null=True,
     )
 
 

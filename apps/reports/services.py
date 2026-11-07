@@ -78,7 +78,10 @@ def obtener_kpis(queryset):
     ).count()
     total_no_aprobados = total_intentos - total_aprobados
     porcentaje_aprobacion = (
-        (Decimal(total_aprobados) / Decimal(total_intentos) * Decimal("100"))
+        min(
+            Decimal("100"),
+            Decimal(total_aprobados) / Decimal(total_intentos) * Decimal("100"),
+        )
         if total_intentos
         else Decimal("0")
     )

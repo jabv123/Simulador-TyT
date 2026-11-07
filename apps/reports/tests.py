@@ -156,6 +156,19 @@ class ReportesApiTests(APITestCase):
         self.assertEqual(response.data["indicadores"]["estudiantes_distintos"], 1)
         self.assertEqual(response.data["indicadores"]["aprobados"], 1)
         self.assertEqual(response.data["indicadores"]["no_aprobados"], 1)
+        self.assertLessEqual(
+            response.data["indicadores"]["porcentaje_aprobacion"],
+            Decimal("100"),
+        )
+
+    def test_porcentaje_aprobacion_se_muestra_sin_decimales(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("reports:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<strong>50%</strong>", html=True)
+        self.assertNotContains(response, "50,00%")
 
     def test_filtros_jerarquicos_respetan_herencia(self):
         periodos = self.client.get("/reportes/api/periodos/?anio=2026")
@@ -344,6 +357,16 @@ class ReportesApiTests(APITestCase):
         pantalla = self.client.get(reverse("reports:home"))
         self.assertNotContains(pantalla, "<th>Identificación</th>", html=False)
         self.assertNotContains(pantalla, f"({self.estudiante.codigo})")
+
+    def test_pantalla_reportes_conecta_descargas_excel_autenticadas(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("reports:home"))
+
+        self.assertEqual(response.status_code, 200)
+        for reporte in ("all", "A", "B", "C"):
+            self.assertContains(response, f'data-report-export="{reporte}"')
+        self.assertContains(response, "js/reportes.js")
 
     def test_resultado_individual_usa_nota_sobre_cinco_y_curso_historico(self):
         response = self.client.get(

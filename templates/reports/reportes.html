@@ -1,4 +1,9 @@
 {% extends "base.html" %}
+{% load static %}
+
+{% block scripts %}
+  <script type="module" src="{% static 'js/reportes.js' %}"></script>
+{% endblock %}
 
 {% block content %}
   <main class="layout reports-layout">
@@ -9,10 +14,10 @@
           <p class="muted">Aprobación: nota ≥ calificación de aprobación del cuestionario.</p>
         </div>
         <div class="report-actions">
-          <a class="button button-quiet" href="{% url 'reports:exportar' %}?{{ request.GET.urlencode }}">Libro Excel completo</a>
-          <a class="button button-primary" href="{% url 'reports:exportar' %}?{% if request.GET %}{{ request.GET.urlencode }}&amp;{% endif %}reporte=A">Descargar Reporte A</a>
-          <a class="button button-primary" href="{% url 'reports:exportar' %}?{% if request.GET %}{{ request.GET.urlencode }}&amp;{% endif %}reporte=B">Descargar Reporte B</a>
-          <a class="button button-primary" href="{% url 'reports:exportar' %}?{% if request.GET %}{{ request.GET.urlencode }}&amp;{% endif %}reporte=C">Descargar Reporte C</a>
+          <a class="button button-quiet" data-report-export="all" href="{% url 'reports:exportar' %}?{{ request.GET.urlencode }}">Libro Excel completo</a>
+          <a class="button button-primary" data-report-export="A" href="{% url 'reports:exportar' %}?{% if request.GET %}{{ request.GET.urlencode }}&amp;{% endif %}reporte=A">Descargar Reporte A</a>
+          <a class="button button-primary" data-report-export="B" href="{% url 'reports:exportar' %}?{% if request.GET %}{{ request.GET.urlencode }}&amp;{% endif %}reporte=B">Descargar Reporte B</a>
+          <a class="button button-primary" data-report-export="C" href="{% url 'reports:exportar' %}?{% if request.GET %}{{ request.GET.urlencode }}&amp;{% endif %}reporte=C">Descargar Reporte C</a>
         </div>
       </div>
       <form method="get" class="form-grid" id="report-filter-form">
@@ -145,7 +150,7 @@
       </article>
       <article class="stat-card">
         <h3>% aprobación</h3>
-        <strong>{{ indicadores.porcentaje_aprobacion|floatformat:2 }}%</strong>
+        <strong>{{ indicadores.porcentaje_aprobacion|floatformat:0 }}%</strong>
       </article>
     </section>
 
@@ -188,7 +193,7 @@
             </div>
             <div class="executive-summary-item info">
               <span>% aprobación</span>
-              <strong>{{ resumen.kpis.porcentaje_aprobacion|floatformat:2 }}%</strong>
+              <strong>{{ resumen.kpis.porcentaje_aprobacion|floatformat:0 }}%</strong>
             </div>
           </div>
         {% endif %}
@@ -327,7 +332,7 @@
               </div>
               <div class="mini-panel info">
                 <span class="mini-label">% aprobación</span>
-                <strong>{{ resumen.kpis.porcentaje_aprobacion|floatformat:2 }}%</strong>
+                <strong>{{ resumen.kpis.porcentaje_aprobacion|floatformat:0 }}%</strong>
               </div>
               <div class="mini-panel">
                 <span class="mini-label">Mejor curso</span>
@@ -472,236 +477,4 @@
     </section>
   </main>
 
-  <script>
-    (function () {
-      const form = document.getElementById('report-filter-form');
-      const anioSelect = document.getElementById('anio');
-      const periodoSelect = document.getElementById('periodo');
-      const cursoSelect = document.getElementById('curso');
-      const cursoAcademicoSelect = document.getElementById('curso_academico');
-      const grupoSelect = document.getElementById('grupo');
-      const ejeSelect = document.getElementById('eje');
-      const estudianteSelect = document.getElementById('estudiante');
-      const clearBtn = document.getElementById('clear-filters');
-      const activeFilters = document.getElementById('active-filters');
-      const apiBase = '/reportes/api';
-
-      function renderActiveFilters() {
-        const labels = [
-          ['anio', 'Año'],
-          ['periodo', 'Período'],
-          ['curso_academico', 'Curso académico'],
-          ['grupo', 'Grupo'],
-          ['curso', 'Simulacro'],
-          ['eje', 'Eje'],
-          ['tipo', 'Resumen'],
-          ['query', 'Búsqueda'],
-          ['estudiante', 'Estudiante'],
-        ];
-        const chips = [];
-
-        labels.forEach(([key, label]) => {
-          const field = form.elements[key];
-          const value = field?.value || '';
-          if (!value) return;
-          const selectedText = field && field.tagName === 'SELECT'
-            ? field.selectedOptions[0]?.textContent?.trim() || ''
-            : '';
-          const pretty = (selectedText || value).length > 22
-            ? `${(selectedText || value).slice(0, 22)}…`
-            : (selectedText || value);
-          chips.push(`<span class="filter-chip"><strong>${label}:</strong> ${pretty}</span>`);
-        });
-
-        if (!chips.length) {
-          chips.push('<span class="filter-chip is-empty">Todos los registros</span>');
-        }
-
-        activeFilters.innerHTML = chips.join('');
-      }
-
-      const option = (value, label, selected = false) => {
-        const el = document.createElement('option');
-        el.value = value;
-        el.textContent = label;
-        if (selected) el.selected = true;
-        return el;
-      };
-
-      function resetSelect(select, label = 'Todos') {
-        select.innerHTML = '';
-        select.appendChild(option('', label));
-      }
-
-      function updateChildOptions(select, items, label = 'Todos') {
-        resetSelect(select, label);
-        items.forEach((item) => {
-          const value = item.value ?? item.id ?? item.pk ?? '';
-          const text = item.label ?? item.nombre ?? item.codigo ?? item.name ?? value;
-          if (value !== '') {
-            select.appendChild(option(String(value), String(text)));
-          }
-        });
-      }
-
-      function setSelectValue(select, value) {
-        if (!value) {
-          select.value = '';
-          return;
-        }
-        const match = Array.from(select.options).find((optionEl) => String(optionEl.value) === String(value));
-        if (match) {
-          select.value = String(value);
-        } else {
-          select.value = '';
-        }
-      }
-
-      async function fetchJson(url) {
-        const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
-        if (!response.ok) throw new Error('No se pudieron cargar los filtros.');
-        return response.json();
-      }
-
-      async function refreshPeriodos() {
-        const anio = anioSelect.value;
-        const selectedPeriodo = periodoSelect.value;
-        resetSelect(periodoSelect);
-        const params = new URLSearchParams();
-        if (anio) params.set('anio', anio);
-        const data = await fetchJson(`${apiBase}/periodos/?${params.toString()}`);
-        updateChildOptions(periodoSelect, data, 'Todos');
-        setSelectValue(periodoSelect, selectedPeriodo || '');
-      }
-
-      async function refreshCursos() {
-        const anio = anioSelect.value;
-        const periodo = periodoSelect.value;
-        const selectedCurso = cursoSelect.value;
-        resetSelect(cursoSelect);
-        const params = new URLSearchParams();
-        if (anio) params.set('anio', anio);
-        if (periodo) params.set('periodo', periodo);
-        const url = `${apiBase}/cursos/?${params.toString()}`;
-        const data = await fetchJson(url);
-        updateChildOptions(cursoSelect, data, 'Todos');
-        setSelectValue(cursoSelect, selectedCurso || '');
-      }
-
-      async function refreshCursosAcademicos() {
-        const selectedCurso = cursoAcademicoSelect.value;
-        const data = await fetchJson(`${apiBase}/cursos-academicos/`);
-        updateChildOptions(cursoAcademicoSelect, data, 'Todos');
-        setSelectValue(cursoAcademicoSelect, selectedCurso || '');
-      }
-
-      async function refreshGrupos() {
-        const selectedGrupo = grupoSelect.value;
-        const params = new URLSearchParams();
-        if (cursoAcademicoSelect.value) {
-          params.set('curso_academico', cursoAcademicoSelect.value);
-        }
-        const data = await fetchJson(`${apiBase}/grupos/?${params.toString()}`);
-        const items = data.map((item) => ({
-          id: item.id,
-          nombre: `${item.curso_nombre} · ${item.nombre}`,
-        }));
-        updateChildOptions(grupoSelect, items, 'Todos');
-        setSelectValue(grupoSelect, selectedGrupo || '');
-      }
-
-      async function refreshEjes() {
-        const selectedEje = ejeSelect.value;
-        const anio = anioSelect.value;
-        const periodo = periodoSelect.value;
-        const curso = cursoSelect.value;
-        const params = new URLSearchParams();
-        if (anio) params.set('anio', anio);
-        if (periodo) params.set('periodo', periodo);
-        if (curso) params.set('curso', curso);
-        const data = await fetchJson(`${apiBase}/ejes/?${params.toString()}`);
-        updateChildOptions(ejeSelect, data, 'Todos');
-        setSelectValue(ejeSelect, selectedEje || '');
-      }
-
-      async function refreshEstudiantes() {
-        const selectedEstudiante = estudianteSelect.value;
-        const params = new URLSearchParams();
-        if (cursoSelect.value) params.set('curso', cursoSelect.value);
-        if (cursoAcademicoSelect.value) {
-          params.set('curso_academico', cursoAcademicoSelect.value);
-        }
-        if (grupoSelect.value) params.set('grupo', grupoSelect.value);
-        if (anioSelect.value) params.set('anio', anioSelect.value);
-        if (periodoSelect.value) params.set('periodo', periodoSelect.value);
-        const data = await fetchJson(`${apiBase}/estudiantes/?${params.toString()}`);
-        const items = data.map((item) => ({
-          id: item.id,
-          nombre: item.codigo ? `${item.nombre} (${item.codigo})` : item.nombre,
-        }));
-        updateChildOptions(estudianteSelect, items, 'Todos');
-        setSelectValue(estudianteSelect, selectedEstudiante || '');
-      }
-
-      async function refreshFiltersCascade() {
-        try {
-          await refreshPeriodos();
-          await refreshCursos();
-          await refreshCursosAcademicos();
-          await refreshGrupos();
-          await refreshEjes();
-          await refreshEstudiantes();
-          renderActiveFilters();
-        } catch (error) {
-          console.error(error);
-        }
-      }
-
-      anioSelect.addEventListener('change', async () => {
-        periodoSelect.value = '';
-        cursoSelect.value = '';
-        cursoAcademicoSelect.value = '';
-        grupoSelect.value = '';
-        ejeSelect.value = '';
-        estudianteSelect.value = '';
-        await refreshFiltersCascade();
-      });
-
-      periodoSelect.addEventListener('change', async () => {
-        cursoSelect.value = '';
-        ejeSelect.value = '';
-        estudianteSelect.value = '';
-        await refreshFiltersCascade();
-      });
-
-      cursoSelect.addEventListener('change', async () => {
-        ejeSelect.value = '';
-        estudianteSelect.value = '';
-        await refreshFiltersCascade();
-      });
-
-      cursoAcademicoSelect.addEventListener('change', async () => {
-        grupoSelect.value = '';
-        estudianteSelect.value = '';
-        await refreshFiltersCascade();
-      });
-
-      grupoSelect.addEventListener('change', async () => {
-        estudianteSelect.value = '';
-        await refreshEstudiantes();
-        renderActiveFilters();
-      });
-
-      estudianteSelect.addEventListener('change', renderActiveFilters);
-      clearBtn.addEventListener('click', () => {
-        form.reset();
-        window.location.href = '/reportes/';
-      });
-
-      form.addEventListener('submit', renderActiveFilters);
-
-      renderActiveFilters();
-      refreshFiltersCascade();
-    })();
-  </script>
 {% endblock %}

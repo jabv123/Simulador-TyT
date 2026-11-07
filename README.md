@@ -92,6 +92,18 @@ python manage.py seed_admin
 El comando es idempotente: si ya existe el código como administrador, no cambia
 su contraseña. El inicio de sesión acepta el código institucional o el correo.
 
+Para cargar contenido ficticio de práctica tecnológica TyT en una base local,
+ejecuta:
+
+```powershell
+python manage.py seed_practica_tyt
+```
+
+El comando agrega preguntas originales, dos cuestionarios semestrales y
+resultados de cuentas ficticias sin contraseña utilizable. Es idempotente, no
+modifica contenido existente y rechaza conexiones a bases de datos remotas.
+Puedes revisar el alcance sin guardar cambios con `--dry-run`.
+
 La migración `accounts.0004_permisos_por_accion` crea el catálogo granular para
 usuarios, roles, categorías, preguntas, cuestionarios, importaciones, resultados
 e intentos. El administrador recibe todos los permisos; el estudiante solo

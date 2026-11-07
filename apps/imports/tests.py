@@ -158,6 +158,9 @@ class ImportacionExcelApiTests(APITestCase):
             "cuestionario_id": str(self.cuestionario.pk),
         }
 
+    def datos_solo_banco(self, archivo):
+        return {"archivo": archivo, "cuestionario_id": ""}
+
     def test_descarga_plantilla_excel_con_ejemplo(self):
         respuesta = self.client.get("/api/importaciones/plantilla/")
         self.assertEqual(respuesta.status_code, 200)
@@ -220,6 +223,38 @@ class ImportacionExcelApiTests(APITestCase):
             respuesta.data["validas"][0]["categoria"]["estado"],
             "se creará automáticamente",
         )
+
+    def test_importa_excel_al_banco_sin_modificar_un_cuestionario_con_intentos(self):
+        from apps.attempts.models import Intento
+
+        Intento.objects.create(
+            cuestionario=self.cuestionario,
+            usuario=self.usuario,
+            numero_intento=1,
+        )
+        archivo = self.crear_libro([self.fila("Nueva", "Pregunta solo para el banco")])
+
+        previsualizacion = self.client.post(
+            "/api/importaciones/previsualizar/",
+            self.datos_solo_banco(archivo),
+            format="multipart",
+        )
+        self.assertEqual(previsualizacion.status_code, 200, previsualizacion.data)
+        self.assertEqual(len(previsualizacion.data["validas"]), 1)
+
+        confirmacion = self.client.post(
+            "/api/importaciones/confirmar/",
+            self.datos_solo_banco(
+                self.crear_libro([self.fila("Nueva", "Pregunta solo para el banco")])
+            ),
+            format="multipart",
+        )
+        self.assertEqual(confirmacion.status_code, 201, confirmacion.data)
+        self.assertIsNone(confirmacion.data["importacion"]["cuestionario"])
+        self.assertEqual(confirmacion.data["importacion"]["registros_exitosos"], 1)
+        self.assertEqual(confirmacion.data["preguntas_agregadas_cuestionario"], 0)
+        self.assertTrue(Pregunta.objects.filter(enunciado="Pregunta solo para el banco").exists())
+        self.assertEqual(CuestionarioPregunta.objects.filter(cuestionario=self.cuestionario).count(), 0)
 
     def test_confirmacion_importa_validas_omite_invalidas_y_relaciona_duplicadas(self):
         categoria = Categoria.objects.create(nombre="Ya existe")

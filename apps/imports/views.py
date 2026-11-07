@@ -124,8 +124,9 @@ class PrevisualizarImportacionView(APIView):
     def post(self, request):
         entrada = PrevisualizacionImportacionSerializer(data=request.data)
         entrada.is_valid(raise_exception=True)
-        cuestionario = entrada.validated_data["cuestionario"]
-        validar_destino(request, cuestionario)
+        cuestionario = entrada.validated_data.get("cuestionario")
+        if cuestionario is not None:
+            validar_destino(request, cuestionario)
         resultado = previsualizar_preguntas_excel(
             entrada.validated_data["archivo"]
         )
@@ -140,8 +141,9 @@ class ConfirmarImportacionView(APIView):
     def post(self, request):
         entrada = PrevisualizacionImportacionSerializer(data=request.data)
         entrada.is_valid(raise_exception=True)
-        cuestionario = entrada.validated_data["cuestionario"]
-        validar_destino(request, cuestionario)
+        cuestionario = entrada.validated_data.get("cuestionario")
+        if cuestionario is not None:
+            validar_destino(request, cuestionario)
         importacion, previsualizacion = confirmar_importacion_excel(
             archivo=entrada.validated_data["archivo"],
             usuario=request.user,

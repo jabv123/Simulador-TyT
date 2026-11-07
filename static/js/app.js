@@ -819,9 +819,9 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
       canImport ? api(endpoints.quizzes) : Promise.resolve([]),
     ]);
     pageContent.innerHTML = `
-      <div class="page-header"><div><p class="eyebrow">Carga masiva</p><h1>Importar preguntas desde Excel</h1><p>Descarga la plantilla, revisa las filas y confirma la importación cuando estés listo. Las preguntas ya existentes se cuentan como duplicadas, no como errores.</p></div>${canImport ? `<button id="download-import-template" class="button button-quiet" type="button">Descargar plantilla .xlsx</button>` : ""}</div>
+      <div class="page-header"><div><p class="eyebrow">Carga masiva</p><h1>Importar preguntas desde Excel</h1><p>Descarga la plantilla, revisa las filas y confirma la importación cuando estés listo. Puedes importar solo al banco o añadir preguntas a un cuestionario sin intentos. Las preguntas ya existentes se cuentan como duplicadas, no como errores.</p></div>${canImport ? `<button id="download-import-template" class="button button-quiet" type="button">Descargar plantilla .xlsx</button>` : ""}</div>
       ${canImport ? `<section class="card"><form id="import-form" class="form-stack">
-        <label>Cuestionario de destino<select name="cuestionario_id" required>${quizzes.map((quiz) => `<option value="${quiz.id}">${escapeHtml(quiz.nombre)}</option>`).join("")}</select></label>
+        <label>Destino de las preguntas<select name="cuestionario_id"><option value="">Solo banco de preguntas</option>${quizzes.map((quiz) => `<option value="${quiz.id}">${escapeHtml(quiz.nombre)}</option>`).join("")}</select></label>
         <label>Libro Excel (.xlsx)<input class="file-input" name="archivo" type="file" accept=".xlsx" required></label>
         <div class="toolbar"><button class="button button-primary">Previsualizar filas</button><button id="confirm-import" class="button button-primary" type="button" hidden>Confirmar importación</button></div>
       </form><div id="import-preview"></div></section>` : ""}
@@ -939,6 +939,7 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
         previewContainer.innerHTML = `
           <h2>Resultado de la previsualización (${previsualizacion.total_registros} filas)</h2>
           <p>${previsualizacion.validas.length} válidas · ${previsualizacion.duplicadas.length} duplicadas · ${previsualizacion.errores.length} con errores</p>
+          ${!formElement.elements.cuestionario_id.value ? '<p class="form-hint">Las preguntas se guardarán únicamente en el banco y no se añadirán a ningún cuestionario.</p>' : ""}
           ${!previsualizacion.validas.length ? '<p class="form-hint">No hay preguntas nuevas para crear en el banco. Al confirmar, las preguntas duplicadas solo se añadirán si todavía no están vinculadas al cuestionario. Revisa la pestaña «Con errores» y corrige esas filas en el Excel.</p>' : ""}
           <div class="preview-tabs" role="tablist">${["validas", "duplicadas", "errores"].map((key, index) => `<button class="button button-quiet ${index === 0 ? "active" : ""}" type="button" role="tab" aria-selected="${index === 0}" aria-controls="preview-${key}" data-preview-tab="${key}">${key === "validas" ? "Válidas" : key === "duplicadas" ? "Duplicadas" : "Con errores"} (${previsualizacion[key].length})</button>`).join("")}</div>
           ${["validas", "duplicadas", "errores"].map((key, index) => `<section id="preview-${key}" role="tabpanel" class="preview-panel ${index ? "hidden" : ""}" data-preview-panel="${key}"><ul>${previsualizacion[key].map((item) => `<li><strong>Fila ${item.fila}:</strong> ${escapeHtml(item.motivo || item.datos?.enunciado || "Registro repetido")}${item.categoria ? ` · Categoría ${escapeHtml(item.categoria.estado)}` : ""}</li>`).join("") || "<li>Sin filas en esta categoría.</li>"}</ul></section>`).join("")}`;
@@ -970,9 +971,14 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
           body: new FormData(formElement),
         });
         const agregadas = Number(result.preguntas_agregadas_cuestionario || 0);
-        const mensaje = agregadas
-          ? `Se agregaron ${agregadas} preguntas al cuestionario (${result.importacion.registros_exitosos} nuevas en el banco). ${result.importacion.registros_duplicados} duplicadas y ${result.importacion.registros_con_errores} con errores.`
-          : `No se agregó ninguna pregunta al cuestionario: ${result.importacion.registros_duplicados} filas ya son duplicadas y ${result.importacion.registros_con_errores} tienen errores. Corrige los errores y carga preguntas nuevas o selecciona un cuestionario donde las duplicadas aún no estén vinculadas.`;
+        let mensaje;
+        if (result.importacion.cuestionario) {
+          mensaje = agregadas
+            ? `Se agregaron ${agregadas} preguntas al cuestionario (${result.importacion.registros_exitosos} nuevas en el banco). ${result.importacion.registros_duplicados} duplicadas y ${result.importacion.registros_con_errores} con errores.`
+            : `No se agregó ninguna pregunta al cuestionario: ${result.importacion.registros_duplicados} filas ya son duplicadas y ${result.importacion.registros_con_errores} tienen errores. Corrige los errores y carga preguntas nuevas o selecciona un cuestionario donde las duplicadas aún no estén vinculadas.`;
+        } else {
+          mensaje = `Se importaron ${result.importacion.registros_exitosos} preguntas nuevas al banco. ${result.importacion.registros_duplicados} duplicadas y ${result.importacion.registros_con_errores} con errores.`;
+        }
         showMessage(mensaje, result.importacion.registros_con_errores ? "error" : "success");
         await loadImports();
       } catch (error) { showMessage(error.message, "error"); }
