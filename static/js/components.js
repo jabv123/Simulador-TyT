@@ -79,7 +79,12 @@ export function initializeFormValidation(root = document) {
       const term = event.target.value.trim().toLocaleLowerCase();
       table.querySelectorAll("[data-table-row]").forEach((row) => {
         const rowSearchText = (row.dataset.tableSearchText || row.textContent || "").toLocaleLowerCase();
-        row.hidden = !rowSearchText.includes(term);
+        const selectedHistoryFilter = table.dataset.historyFilter || "all";
+        const matchesHistoryFilter = selectedHistoryFilter === "all"
+          || (row.dataset.historyKinds || "all")
+            .split(" ")
+            .includes(selectedHistoryFilter);
+        row.hidden = !matchesHistoryFilter || !rowSearchText.includes(term);
       });
       return;
     }

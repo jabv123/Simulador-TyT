@@ -5,8 +5,12 @@ from django.urls import include, path
 
 from apps.core.views import AccesoDenegadoView, InicioView
 from apps.accounts.views_admin import (
+    DetalleCursoAcademicoView,
+    DetalleGrupoAcademicoView,
     DetalleRolView,
     DetalleUsuarioView,
+    ListaCursosAcademicosView,
+    ListaGruposAcademicosView,
     ListaRolesView,
     ListaUsuariosView,
     PermisosAgrupadosView,
@@ -25,6 +29,22 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/auth/", include("apps.accounts.urls")),
     path("api/usuarios/", ListaUsuariosView.as_view(), name="usuarios"),
+    path(
+        "api/cursos-academicos/",
+        ListaCursosAcademicosView.as_view(),
+        name="cursos-academicos",
+    ),
+    path(
+        "api/cursos-academicos/<int:pk>/",
+        DetalleCursoAcademicoView.as_view(),
+        name="curso-academico-detalle",
+    ),
+    path("api/grupos/", ListaGruposAcademicosView.as_view(), name="grupos"),
+    path(
+        "api/grupos/<int:pk>/",
+        DetalleGrupoAcademicoView.as_view(),
+        name="grupo-detalle",
+    ),
     path(
         "api/usuarios/<int:pk>/estado/",
         EstadoUsuarioView.as_view(),

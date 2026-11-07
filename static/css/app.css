@@ -437,7 +437,16 @@ tr:last-child td { border-bottom: 0; }
   gap: 16px;
   margin-bottom: 18px;
 }
-.report-actions { display: flex; align-items: center; gap: 12px; }
+.reports-layout #report-filter-form {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .filter-summary {
   display: flex;
   flex-wrap: wrap;

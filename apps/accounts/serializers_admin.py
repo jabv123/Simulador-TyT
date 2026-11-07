@@ -8,7 +8,9 @@ from rest_framework.validators import UniqueValidator
 
 from .models import (
     AlcancePermiso,
+    CursoAcademico,
     Estado,
+    Grupo,
     Permiso,
     Rol,
     Usuario,
@@ -20,6 +22,37 @@ class PermisoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Permiso
         fields = ("id", "modulo", "accion", "descripcion")
+
+
+class CursoAcademicoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CursoAcademico
+        fields = ("id", "nombre", "estado")
+        read_only_fields = ("id",)
+
+
+class GrupoAcademicoSerializer(serializers.ModelSerializer):
+    curso_nombre = serializers.ReadOnlyField(source="curso.nombre")
+    curso = serializers.PrimaryKeyRelatedField(
+        queryset=CursoAcademico.objects.filter(estado=Estado.ACTIVO)
+    )
+
+    class Meta:
+        model = Grupo
+        fields = ("id", "curso", "curso_nombre", "nombre", "estado")
+        read_only_fields = ("id", "curso_nombre")
+
+    def validate(self, attrs):
+        if (
+            self.instance
+            and self.instance.intentos.exists()
+            and "curso" in attrs
+            and attrs["curso"].pk != self.instance.curso_id
+        ):
+            raise serializers.ValidationError(
+                {"curso": "No se puede mover un grupo con intentos históricos."}
+            )
+        return attrs
 
 
 class AsignacionPermisoSerializer(serializers.Serializer):
@@ -125,6 +158,13 @@ class UsuarioAdministracionSerializer(serializers.ModelSerializer):
         style={"input_type": "password"},
     )
     rol_nombre = serializers.ReadOnlyField(source="rol.nombre")
+    grupo = serializers.PrimaryKeyRelatedField(
+        queryset=Grupo.objects.filter(estado=Estado.ACTIVO, curso__estado=Estado.ACTIVO),
+        allow_null=True,
+        required=False,
+    )
+    grupo_nombre = serializers.ReadOnlyField(source="grupo.nombre")
+    curso_academico_nombre = serializers.ReadOnlyField(source="grupo.curso.nombre")
 
     class Meta:
         model = Usuario
@@ -137,6 +177,9 @@ class UsuarioAdministracionSerializer(serializers.ModelSerializer):
             "foto",
             "telefono",
             "estado",
+            "grupo",
+            "grupo_nombre",
+            "curso_academico_nombre",
             "fecha_creacion",
             "rol",
             "rol_nombre",
@@ -161,6 +204,12 @@ class UsuarioAdministracionSerializer(serializers.ModelSerializer):
         if self.instance is None and not attrs.get("password"):
             raise serializers.ValidationError(
                 {"password": "La contraseña es obligatoria al crear un usuario."}
+            )
+        grupo = attrs.get("grupo", getattr(self.instance, "grupo", None))
+        rol = attrs.get("rol", getattr(self.instance, "rol", None))
+        if grupo and (rol is None or rol.nombre.casefold() != "estudiante"):
+            raise serializers.ValidationError(
+                {"grupo": "Solo los estudiantes pueden pertenecer a un grupo académico."}
             )
         return attrs
 

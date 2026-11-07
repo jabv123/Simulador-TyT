@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Estado, Permiso, Rol, Usuario
+from .models import CursoAcademico, Estado, Grupo, Permiso, Rol, Usuario
 from .pagination import PaginacionUsuarios
 from .permissions import (
     HasModulePermission,
@@ -18,12 +18,71 @@ from .permissions import (
 from .serializers_admin import (
     AsignacionPermisoSerializer,
     EstadoUsuarioSerializer,
+    CursoAcademicoSerializer,
+    GrupoAcademicoSerializer,
     PermisoSerializer,
     RestablecerContrasenaSerializer,
     RolAdministracionSerializer,
     UsuarioAdministracionSerializer,
 )
 from .services import reemplazar_permisos_rol
+
+
+class ListaCursosAcademicosView(generics.ListCreateAPIView):
+    queryset = CursoAcademico.objects.all()
+    serializer_class = CursoAcademicoSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    required_permissions = {
+        "list": ("usuarios", "ver"),
+        "create": ("usuarios", "crear"),
+    }
+
+
+class DetalleCursoAcademicoView(generics.RetrieveUpdateAPIView):
+    queryset = CursoAcademico.objects.all()
+    serializer_class = CursoAcademicoSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    required_permissions = {
+        "retrieve": ("usuarios", "ver"),
+        "update": ("usuarios", "editar"),
+    }
+
+
+class ListaGruposAcademicosView(generics.ListCreateAPIView):
+    serializer_class = GrupoAcademicoSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    required_permissions = {
+        "list": ("usuarios", "ver"),
+        "create": ("usuarios", "crear"),
+    }
+
+    def get_queryset(self):
+        queryset = Grupo.objects.select_related("curso").all()
+        curso_id = self.request.query_params.get("curso")
+        if curso_id:
+            if not curso_id.isdecimal():
+                raise ValidationError(
+                    {"curso": "El filtro curso debe ser un identificador numérico."}
+                )
+            queryset = queryset.filter(curso_id=curso_id)
+        estado = self.request.query_params.get("estado")
+        if estado:
+            if estado.upper() not in Estado.values:
+                raise ValidationError(
+                    {"estado": "El filtro estado debe ser ACTIVO o INACTIVO."}
+                )
+            queryset = queryset.filter(estado=estado.upper())
+        return queryset
+
+
+class DetalleGrupoAcademicoView(generics.RetrieveUpdateAPIView):
+    queryset = Grupo.objects.select_related("curso")
+    serializer_class = GrupoAcademicoSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    required_permissions = {
+        "retrieve": ("usuarios", "ver"),
+        "update": ("usuarios", "editar"),
+    }
 
 
 class ListaUsuariosView(generics.ListCreateAPIView):
@@ -40,7 +99,7 @@ class ListaUsuariosView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         queryset = filtrar_por_alcance(
-            Usuario.objects.select_related("rol"),
+            Usuario.objects.select_related("rol", "grupo", "grupo__curso"),
             self.request.user,
             "USUARIOS.VER",
             None,
@@ -75,7 +134,7 @@ class DetalleUsuarioView(generics.RetrieveUpdateAPIView):
     def get_queryset(self):
         permiso = "USUARIOS.VER"
         return filtrar_por_alcance(
-            Usuario.objects.select_related("rol"),
+            Usuario.objects.select_related("rol", "grupo", "grupo__curso"),
             self.request.user,
             permiso,
             None,

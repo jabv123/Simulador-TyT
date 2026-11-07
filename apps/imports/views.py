@@ -6,7 +6,7 @@ from django.http import HttpResponse
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -153,6 +153,9 @@ class ConfirmarImportacionView(APIView):
                 "validas": previsualizacion["validas"],
                 "duplicadas": previsualizacion["duplicadas"],
                 "errores": previsualizacion["errores"],
+                "preguntas_agregadas_cuestionario": (
+                    previsualizacion["preguntas_agregadas_cuestionario"]
+                ),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -172,3 +175,117 @@ class ListaImportacionesView(generics.ListAPIView):
             "usuario",
             request=self.request,
         )
+
+
+class ExportarHistorialImportacionesView(APIView):
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    required_permissions = {"get": ("importaciones", "ver")}
+    categorias = ("validas", "duplicadas", "errores")
+    titulos = {
+        "validas": "Válida",
+        "duplicadas": "Duplicada",
+        "errores": "Con errores",
+    }
+
+    def get(self, request):
+        tipo = request.query_params.get("tipo", "all")
+        if tipo != "all" and tipo not in self.categorias:
+            raise ValidationError({"tipo": "Selecciona un filtro de historial válido."})
+
+        permiso = permiso_de_vista(request, self)
+        importaciones = filtrar_por_alcance(
+            Importacion.objects.select_related("usuario", "cuestionario"),
+            request.user,
+            permiso,
+            "usuario",
+            request=request,
+        )
+        libro = Workbook()
+        hoja = libro.active
+        hoja.title = "Historial de importaciones"
+        hoja.append(
+            [
+                "Archivo",
+                "Fecha de importación",
+                "Cuestionario",
+                "Resultado",
+                "Tipo de fila",
+                "Fila Excel",
+                "Categoría",
+                "Pregunta o detalle",
+            ]
+        )
+        for celda in hoja[1]:
+            celda.font = Font(bold=True)
+
+        for importacion in importaciones:
+            detalles = ImportacionSerializer.obtener_detalles(importacion)
+            seleccionadas = self.categorias if tipo == "all" else (tipo,)
+            for categoria in seleccionadas:
+                registros = detalles.get(categoria, [])
+                if categoria == "validas" and not registros and importacion.registros_exitosos:
+                    registros = [
+                        {
+                            "pregunta": (
+                                f"{importacion.registros_exitosos} fila(s) válida(s); "
+                                "el detalle no se conservó en esta importación."
+                            )
+                        }
+                    ]
+                for registro in registros:
+                    if isinstance(registro, dict):
+                        fila = registro.get("fila", "")
+                        nombre_categoria = registro.get("categoria", "")
+                        descripcion = (
+                            registro.get("pregunta")
+                            or registro.get("motivo")
+                            or registro.get("error")
+                            or "Registro"
+                        )
+                    else:
+                        fila = ""
+                        nombre_categoria = ""
+                        descripcion = str(registro)
+                    hoja.append(
+                        [
+                            importacion.nombre_archivo,
+                            importacion.fecha_importacion.strftime("%Y-%m-%d %H:%M"),
+                            importacion.cuestionario.nombre if importacion.cuestionario else "",
+                            importacion.estado_resultado,
+                            self.titulos[categoria],
+                            fila,
+                            nombre_categoria,
+                            descripcion,
+                        ]
+                    )
+
+        hoja.freeze_panes = "A2"
+        hoja.auto_filter.ref = hoja.dimensions
+        for columna, ancho in {
+            "A": 32,
+            "B": 20,
+            "C": 32,
+            "D": 16,
+            "E": 18,
+            "F": 12,
+            "G": 24,
+            "H": 70,
+        }.items():
+            hoja.column_dimensions[columna].width = ancho
+        for fila in hoja.iter_rows():
+            for celda in fila:
+                if isinstance(celda.value, str):
+                    celda.data_type = "s"
+        salida = BytesIO()
+        libro.save(salida)
+        response = HttpResponse(
+            salida.getvalue(),
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="historial_importaciones_{tipo}.xlsx"'
+        )
+        return response

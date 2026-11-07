@@ -273,7 +273,99 @@ class ImportacionExcelApiTests(APITestCase):
         self.assertEqual(importacion.registros_exitosos, 1)
         self.assertEqual(importacion.registros_fallidos, 3)
         self.assertEqual(importacion.estado_resultado, "Parcial")
+        self.assertEqual(respuesta.data["importacion"]["registros_duplicados"], 2)
+        self.assertEqual(respuesta.data["importacion"]["registros_con_errores"], 1)
         self.assertEqual(len(respuesta.data["errores"]), 1)
+        self.assertEqual(respuesta.data["preguntas_agregadas_cuestionario"], 2)
+        detalles = json.loads(respuesta.data["importacion"]["detalles_error"])
+        self.assertEqual([item["fila"] for item in detalles["validas"]], [2])
+        self.assertEqual(
+            [item["fila"] for item in detalles["duplicadas"]],
+            [3, 4],
+        )
+
+    def test_exporta_el_historial_excel_con_el_filtro_seleccionado(self):
+        archivo = self.crear_libro(
+            [
+                self.fila("Nueva", "Pregunta válida"),
+                self.fila("Nueva", "Pregunta válida"),
+                self.fila("Nueva", "Pregunta errónea", respuesta_correcta="D"),
+            ]
+        )
+        confirmacion = self.client.post(
+            "/api/importaciones/confirmar/",
+            self.datos_post(archivo),
+            format="multipart",
+        )
+        self.assertEqual(confirmacion.status_code, 201, confirmacion.data)
+        importacion = Importacion.objects.get()
+        detalles = json.loads(importacion.detalles_error)
+        detalles["validas"][0]["pregunta"] = "=1+1"
+        importacion.detalles_error = json.dumps(detalles)
+        importacion.save(update_fields=["detalles_error"])
+
+        for tipo, esperado in (
+            ("validas", "Válida"),
+            ("duplicadas", "Duplicada"),
+            ("errores", "Con errores"),
+        ):
+            with self.subTest(tipo=tipo):
+                respuesta = self.client.get(
+                    f"/api/importaciones/historial/exportar/?tipo={tipo}"
+                )
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertIn(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    respuesta["Content-Type"],
+                )
+                libro = load_workbook(BytesIO(respuesta.content), data_only=True)
+                filas = list(libro.active.iter_rows(values_only=True))
+                self.assertEqual(filas[1][4], esperado)
+                if tipo == "validas":
+                    self.assertEqual(libro.active["H2"].data_type, "s")
+                    self.assertEqual(filas[1][7], "=1+1")
+
+        respuesta_invalida = self.client.get(
+            "/api/importaciones/historial/exportar/?tipo=desconocidas"
+        )
+        self.assertEqual(respuesta_invalida.status_code, 400)
+        self.client.force_authenticate(None)
+        respuesta_sin_sesion = self.client.get(
+            "/api/importaciones/historial/exportar/?tipo=errores"
+        )
+        self.assertEqual(respuesta_sin_sesion.status_code, 401)
+
+    def test_reimportar_filas_existentes_no_se_reporta_como_fallido(self):
+        archivo = self.crear_libro([self.fila("Nueva", "Pregunta idempotente")])
+        primera = self.client.post(
+            "/api/importaciones/confirmar/",
+            self.datos_post(archivo),
+            format="multipart",
+        )
+        self.assertEqual(primera.status_code, 201, primera.data)
+        self.assertEqual(primera.data["importacion"]["registros_exitosos"], 1)
+        self.assertEqual(primera.data["preguntas_agregadas_cuestionario"], 1)
+
+        segunda = self.client.post(
+            "/api/importaciones/confirmar/",
+            self.datos_post(
+                self.crear_libro([self.fila("Nueva", "Pregunta idempotente")])
+            ),
+            format="multipart",
+        )
+
+        self.assertEqual(segunda.status_code, 201, segunda.data)
+        importacion = segunda.data["importacion"]
+        self.assertEqual(importacion["registros_exitosos"], 0)
+        self.assertEqual(importacion["registros_duplicados"], 1)
+        self.assertEqual(importacion["registros_con_errores"], 0)
+        self.assertEqual(importacion["estado_resultado"], "Sin cambios")
+        self.assertEqual(segunda.data["preguntas_agregadas_cuestionario"], 0)
+        self.assertEqual(Pregunta.objects.count(), 1)
+        historial = self.client.get("/api/importaciones/historial/")
+        self.assertEqual(historial.status_code, 200)
+        self.assertEqual(historial.data[0]["registros_duplicados"], 1)
+        self.assertEqual(historial.data[0]["registros_con_errores"], 0)
 
     def test_rechaza_extension_y_cuestionario_que_ya_tiene_intentos(self):
         archivo_invalido = self.crear_libro([], nombre="preguntas.csv")
@@ -313,4 +405,8 @@ class ImportacionExcelApiTests(APITestCase):
             format="multipart",
         )
         self.assertEqual(respuesta.status_code, 403)
+        respuesta_exportacion = self.client.get(
+            "/api/importaciones/historial/exportar/?tipo=validas"
+        )
+        self.assertEqual(respuesta_exportacion.status_code, 403)
         self.assertEqual(Pregunta.objects.count(), 0)

@@ -9,7 +9,10 @@
           <p class="muted">Aprobación: nota ≥ calificación de aprobación del cuestionario.</p>
         </div>
         <div class="report-actions">
-          <a class="button button-primary" href="{% url 'reports:exportar' %}?{{ request.GET.urlencode }}">Exportar a Excel</a>
+          <a class="button button-quiet" href="{% url 'reports:exportar' %}?{{ request.GET.urlencode }}">Libro Excel completo</a>
+          <a class="button button-primary" href="{% url 'reports:exportar' %}?{% if request.GET %}{{ request.GET.urlencode }}&amp;{% endif %}reporte=A">Descargar Reporte A</a>
+          <a class="button button-primary" href="{% url 'reports:exportar' %}?{% if request.GET %}{{ request.GET.urlencode }}&amp;{% endif %}reporte=B">Descargar Reporte B</a>
+          <a class="button button-primary" href="{% url 'reports:exportar' %}?{% if request.GET %}{{ request.GET.urlencode }}&amp;{% endif %}reporte=C">Descargar Reporte C</a>
         </div>
       </div>
       <form method="get" class="form-grid" id="report-filter-form">
@@ -32,7 +35,25 @@
           </select>
         </div>
         <div>
-          <label for="curso">Curso / simulacro</label>
+          <label for="curso_academico">Curso académico</label>
+          <select id="curso_academico" name="curso_academico">
+            <option value="">Todos</option>
+            {% for curso in cursos_academicos %}
+              <option value="{{ curso.id }}" {% if request.GET.curso_academico == curso.id|stringformat:'s' %}selected{% endif %}>{{ curso.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="grupo">Grupo</label>
+          <select id="grupo" name="grupo">
+            <option value="">Todos</option>
+            {% for grupo in grupos_academicos %}
+              <option value="{{ grupo.id }}" {% if request.GET.grupo == grupo.id|stringformat:'s' %}selected{% endif %}>{{ grupo.curso_nombre }} · {{ grupo.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="curso">Simulacro / cuestionario</label>
           <select id="curso" name="curso">
             <option value="">Todos</option>
             {% for curso in cursos %}
@@ -51,15 +72,23 @@
         </div>
         <div>
           <label for="estudiante">Estudiante</label>
-          <input id="estudiante" name="estudiante" type="text" value="{{ request.GET.estudiante }}" placeholder="Buscar por nombre o código">
+          <select id="estudiante" name="estudiante">
+            <option value="">Todos</option>
+            {% for estudiante in estudiantes %}
+              <option value="{{ estudiante.id }}" {% if request.GET.estudiante == estudiante.id|stringformat:'s' %}selected{% endif %}>{{ estudiante.nombre }}{% if puede_ver_identificacion %} ({{ estudiante.codigo }}){% endif %}</option>
+            {% endfor %}
+          </select>
         </div>
         <div>
           <label for="tipo">Vista de resumen</label>
           <select id="tipo" name="tipo">
             <option value="general" {% if tipo == 'general' %}selected{% endif %}>General</option>
-            <option value="curso" {% if tipo == 'curso' %}selected{% endif %}>Por curso</option>
+            <option value="curso" {% if tipo == 'curso' %}selected{% endif %}>Por simulacro</option>
+            <option value="curso_grupo" {% if tipo == 'curso_grupo' %}selected{% endif %}>Por curso / grupo</option>
             <option value="estudiante" {% if tipo == 'estudiante' %}selected{% endif %}>Por estudiante</option>
             <option value="eje" {% if tipo == 'eje' %}selected{% endif %}>Por eje</option>
+            <option value="periodo" {% if tipo == 'periodo' %}selected{% endif %}>Por año y período</option>
+            <option value="dificultad" {% if tipo == 'dificultad' %}selected{% endif %}>Preguntas de mayor dificultad</option>
           </select>
         </div>
         <div>
@@ -72,6 +101,8 @@
             <option value="fecha" {% if orden == 'fecha' %}selected{% endif %}>Fecha</option>
             <option value="usuario" {% if orden == 'usuario' %}selected{% endif %}>Estudiante</option>
             <option value="curso" {% if orden == 'curso' %}selected{% endif %}>Curso</option>
+            <option value="grupo" {% if orden == 'grupo' %}selected{% endif %}>Grupo</option>
+            <option value="simulacro" {% if orden == 'simulacro' %}selected{% endif %}>Simulacro</option>
             <option value="nota" {% if orden == 'nota' %}selected{% endif %}>Nota</option>
             <option value="estado" {% if orden == 'estado' %}selected{% endif %}>Estado</option>
           </select>
@@ -101,16 +132,16 @@
         <strong>{{ indicadores.intentos_finalizados }}</strong>
       </article>
       <article class="stat-card">
-        <h3>Promedio</h3>
+        <h3>Promedio / 5,0</h3>
         <strong>{{ indicadores.promedio|floatformat:2 }}</strong>
       </article>
       <article class="stat-card">
-        <h3>Nota mínima</h3>
-        <strong>{{ indicadores.nota_minima|default:'N/A' }}</strong>
+        <h3>Nota mínima / 5,0</h3>
+        <strong>{{ indicadores.nota_minima|floatformat:"-2"|default:'N/A' }}</strong>
       </article>
       <article class="stat-card">
-        <h3>Nota máxima</h3>
-        <strong>{{ indicadores.nota_maxima|default:'N/A' }}</strong>
+        <h3>Nota máxima / 5,0</h3>
+        <strong>{{ indicadores.nota_maxima|floatformat:"-2"|default:'N/A' }}</strong>
       </article>
       <article class="stat-card">
         <h3>% aprobación</h3>
@@ -123,14 +154,28 @@
         <div class="section-header-row">
           <div>
             <h2>Resumen ejecutivo · {{ tipo }}</h2>
-            {% if tipo == 'curso' %}<p class="muted">Indicadores clave de rendimiento por cuestionario.</p>{% elif tipo == 'estudiante' %}<p class="muted">Desempeño académico consolidado por estudiante.</p>{% elif tipo == 'eje' %}<p class="muted">Rendimiento por eje temático y nivel de dificultad.</p>{% else %}<p class="muted">Resumen administrativo del rendimiento general y principales tendencias.</p>{% endif %}
+            {% if tipo == 'curso' %}
+              <p class="muted">Indicadores por simulacro o cuestionario.</p>
+            {% elif tipo == 'curso_grupo' %}
+              <p class="muted">Estudiantes evaluados, promedio y rango de notas por curso y grupo.</p>
+            {% elif tipo == 'estudiante' %}
+              <p class="muted">Desempeño académico consolidado por estudiante.</p>
+            {% elif tipo == 'eje' %}
+              <p class="muted">Respuestas y calificación ponderada por eje temático.</p>
+            {% elif tipo == 'periodo' %}
+              <p class="muted">Comparación de evaluaciones y promedio por semestre calendario.</p>
+            {% elif tipo == 'dificultad' %}
+              <p class="muted">Preguntas ordenadas por porcentaje de aciertos ascendente.</p>
+            {% else %}
+              <p class="muted">Resumen administrativo del rendimiento general y principales tendencias.</p>
+            {% endif %}
           </div>
         </div>
 
         {% if resumen and resumen.kpis %}
           <div class="executive-summary-strip">
             <div class="executive-summary-item">
-              <span>Promedio general</span>
+              <span>Promedio general / 5,0</span>
               <strong>{{ resumen.kpis.promedio|floatformat:2 }}</strong>
             </div>
             <div class="executive-summary-item success">
@@ -148,7 +193,66 @@
           </div>
         {% endif %}
 
-        {% if tipo == 'curso' %}
+        {% if tipo == 'curso_grupo' %}
+          <div class="table-responsive">
+            <table>
+              <thead><tr><th>Curso</th><th>Grupo</th><th>Estudiantes evaluados</th><th>Intentos</th><th>Promedio</th><th>Mínima</th><th>Máxima</th><th>Aprobados</th><th>No aprobados</th></tr></thead>
+              <tbody>
+                {% for item in resumen %}
+                  <tr>
+                    <td>{{ item.curso }}</td>
+                    <td>{{ item.grupo }}</td>
+                    <td>{{ item.estudiantes }}</td>
+                    <td>{{ item.intentos }}</td>
+                    <td>{{ item.promedio|floatformat:2 }}</td>
+                    <td>{{ item.nota_minima|floatformat:"-2"|default:'N/A' }}</td>
+                    <td>{{ item.nota_maxima|floatformat:"-2"|default:'N/A' }}</td>
+                    <td>{{ item.aprobados }}</td>
+                    <td>{{ item.no_aprobados }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="9">Sin datos</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% elif tipo == 'periodo' %}
+          <table>
+            <thead><tr><th>Año</th><th>Período</th><th>Evaluaciones</th><th>Intentos</th><th>Estudiantes</th><th>Promedio</th></tr></thead>
+            <tbody>
+              {% for item in resumen %}
+                <tr>
+                  <td>{{ item.anio }}</td>
+                  <td>{{ item.periodo_nombre }}</td>
+                  <td>{{ item.evaluaciones }}</td>
+                  <td>{{ item.intentos }}</td>
+                  <td>{{ item.estudiantes }}</td>
+                  <td>{{ item.promedio|floatformat:2 }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="6">Sin datos</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% elif tipo == 'dificultad' %}
+          <table>
+            <thead><tr><th>ID</th><th>Pregunta</th><th>Eje</th><th>Respuestas</th><th>Errores</th><th>% aciertos</th></tr></thead>
+            <tbody>
+              {% for item in resumen %}
+                <tr>
+                  <td>{{ item.id }}</td>
+                  <td>{{ item.pregunta }}</td>
+                  <td>{{ item.eje|default:'Sin eje' }}</td>
+                  <td>{{ item.total_respuestas }}</td>
+                  <td>{{ item.errores }}</td>
+                  <td>{{ item.porcentaje_aciertos|floatformat:2 }}%</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="6">Sin datos</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% elif tipo == 'curso' %}
           {% if resumen %}
             <table>
               <thead><tr><th>Curso</th><th>Intentos</th><th>Estudiantes</th><th>Aprobados</th><th>Promedio</th></tr></thead>
@@ -189,17 +293,19 @@
         {% elif tipo == 'eje' %}
           {% if resumen %}
             <table>
-              <thead><tr><th>Eje</th><th>Preguntas</th><th>Intentos</th><th>Promedio</th></tr></thead>
+              <thead><tr><th>Eje</th><th>Preguntas</th><th>Preguntas respondidas</th><th>Correctas</th><th>% aciertos</th><th>Nota / 5</th></tr></thead>
               <tbody>
                 {% for item in resumen %}
                   <tr>
                     <td>{{ item.nombre }}</td>
                     <td>{{ item.preguntas }}</td>
-                    <td>{{ item.intentos }}</td>
-                    <td>{{ item.promedio|floatformat:2 }}</td>
+                    <td>{{ item.preguntas_respondidas }}</td>
+                    <td>{{ item.respuestas_correctas }}</td>
+                    <td>{{ item.porcentaje_aciertos|floatformat:2 }}%</td>
+                    <td>{{ item.nota|floatformat:2|default:'N/A' }}</td>
                   </tr>
                 {% empty %}
-                  <tr><td colspan="4">Sin datos</td></tr>
+                  <tr><td colspan="6">Sin datos</td></tr>
                 {% endfor %}
               </tbody>
             </table>
@@ -283,35 +389,71 @@
       </section>
     {% endif %}
 
+    {% if request.GET.estudiante %}
+      <section class="panel">
+        <h2>Historial individual · evolución sobre 5,0</h2>
+        {% if historial %}
+          <div class="table-responsive">
+            <table>
+              <thead><tr><th>Fecha</th><th>Curso / grupo</th><th>Simulacro</th><th>Nota / 5,0</th><th>Variación</th><th>Estado</th><th>Evolución</th></tr></thead>
+              <tbody>
+                {% for item in historial %}
+                  <tr>
+                    <td>{{ item.fecha|date:'Y-m-d H:i' }}</td>
+                    <td>{{ item.curso }} · {{ item.grupo }}</td>
+                    <td>{{ item.simulacro }}</td>
+                    <td>{{ item.nota|floatformat:2 }}</td>
+                    <td>{% if item.cambio is not None %}{{ item.cambio|floatformat:2 }}{% else %}—{% endif %}</td>
+                    <td>{{ item.estado }}</td>
+                    <td>
+                      <div role="img" aria-label="Calificación {{ item.nota }} sobre 5" style="background:#e5e7eb;border-radius:4px;height:10px;width:100px">
+                        <div style="background:#2563eb;border-radius:4px;height:10px;width:{% widthratio item.nota 5 100 %}px"></div>
+                      </div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p>Este estudiante aún no tiene intentos finalizados.</p>
+        {% endif %}
+      </section>
+    {% endif %}
+
     <section class="panel">
       <h2>Resultados</h2>
       {% if tablas %}
-        <table>
-          <thead>
-            <tr>
-              <th>Estudiante</th>
-              <th>Identificación</th>
-              <th>Curso</th>
-              <th>Simulacro</th>
-              <th>Fecha</th>
-              <th>Nota / 5,0</th>
-              <th>Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for fila in tablas %}
+        <div class="table-responsive">
+          <table>
+            <thead>
               <tr>
-                <td>{{ fila.usuario }}</td>
-                <td>{{ fila.identificacion }}</td>
-                <td>{{ fila.curso }}</td>
-                <td>{{ fila.simulacro }}</td>
-                <td>{{ fila.fecha }}</td>
-                <td>{{ fila.nota }}</td>
-                <td>{{ fila.estado }}</td>
+                <th>Estudiante</th>
+                {% if puede_ver_identificacion %}<th>Identificación</th>{% endif %}
+                <th>Curso</th>
+                <th>Grupo</th>
+                <th>Simulacro</th>
+                <th>Fecha</th>
+                <th>Nota / 5,0</th>
+                <th>Estado</th>
               </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {% for fila in tablas %}
+                <tr>
+                  <td>{{ fila.usuario }}</td>
+                  {% if puede_ver_identificacion %}<td>{{ fila.identificacion }}</td>{% endif %}
+                  <td>{{ fila.curso }}</td>
+                  <td>{{ fila.grupo }}</td>
+                  <td>{{ fila.simulacro }}</td>
+                  <td>{{ fila.fecha }}</td>
+                  <td>{{ fila.nota|floatformat:2 }}</td>
+                  <td>{{ fila.estado }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
 
         {% if paginacion.total_paginas > 1 %}
           <div class="pagination">
@@ -336,18 +478,21 @@
       const anioSelect = document.getElementById('anio');
       const periodoSelect = document.getElementById('periodo');
       const cursoSelect = document.getElementById('curso');
+      const cursoAcademicoSelect = document.getElementById('curso_academico');
+      const grupoSelect = document.getElementById('grupo');
       const ejeSelect = document.getElementById('eje');
-      const estudianteInput = document.getElementById('estudiante');
+      const estudianteSelect = document.getElementById('estudiante');
       const clearBtn = document.getElementById('clear-filters');
       const activeFilters = document.getElementById('active-filters');
       const apiBase = '/reportes/api';
 
       function renderActiveFilters() {
-        const params = new URLSearchParams(window.location.search);
         const labels = [
           ['anio', 'Año'],
           ['periodo', 'Período'],
-          ['curso', 'Curso'],
+          ['curso_academico', 'Curso académico'],
+          ['grupo', 'Grupo'],
+          ['curso', 'Simulacro'],
           ['eje', 'Eje'],
           ['tipo', 'Resumen'],
           ['query', 'Búsqueda'],
@@ -357,7 +502,7 @@
 
         labels.forEach(([key, label]) => {
           const field = form.elements[key];
-          const value = params.get(key) || field?.value || '';
+          const value = field?.value || '';
           if (!value) return;
           const selectedText = field && field.tagName === 'SELECT'
             ? field.selectedOptions[0]?.textContent?.trim() || ''
@@ -420,19 +565,19 @@
 
       async function refreshPeriodos() {
         const anio = anioSelect.value;
+        const selectedPeriodo = periodoSelect.value;
         resetSelect(periodoSelect);
-        if (!anio) {
-          return;
-        }
-        const data = await fetchJson(`${apiBase}/periodos/?anio=${encodeURIComponent(anio)}`);
+        const params = new URLSearchParams();
+        if (anio) params.set('anio', anio);
+        const data = await fetchJson(`${apiBase}/periodos/?${params.toString()}`);
         updateChildOptions(periodoSelect, data, 'Todos');
-        const selectedPeriodo = new URLSearchParams(window.location.search).get('periodo');
         setSelectValue(periodoSelect, selectedPeriodo || '');
       }
 
       async function refreshCursos() {
         const anio = anioSelect.value;
         const periodo = periodoSelect.value;
+        const selectedCurso = cursoSelect.value;
         resetSelect(cursoSelect);
         const params = new URLSearchParams();
         if (anio) params.set('anio', anio);
@@ -440,11 +585,33 @@
         const url = `${apiBase}/cursos/?${params.toString()}`;
         const data = await fetchJson(url);
         updateChildOptions(cursoSelect, data, 'Todos');
-        const selectedCurso = new URLSearchParams(window.location.search).get('curso');
         setSelectValue(cursoSelect, selectedCurso || '');
       }
 
+      async function refreshCursosAcademicos() {
+        const selectedCurso = cursoAcademicoSelect.value;
+        const data = await fetchJson(`${apiBase}/cursos-academicos/`);
+        updateChildOptions(cursoAcademicoSelect, data, 'Todos');
+        setSelectValue(cursoAcademicoSelect, selectedCurso || '');
+      }
+
+      async function refreshGrupos() {
+        const selectedGrupo = grupoSelect.value;
+        const params = new URLSearchParams();
+        if (cursoAcademicoSelect.value) {
+          params.set('curso_academico', cursoAcademicoSelect.value);
+        }
+        const data = await fetchJson(`${apiBase}/grupos/?${params.toString()}`);
+        const items = data.map((item) => ({
+          id: item.id,
+          nombre: `${item.curso_nombre} · ${item.nombre}`,
+        }));
+        updateChildOptions(grupoSelect, items, 'Todos');
+        setSelectValue(grupoSelect, selectedGrupo || '');
+      }
+
       async function refreshEjes() {
+        const selectedEje = ejeSelect.value;
         const anio = anioSelect.value;
         const periodo = periodoSelect.value;
         const curso = cursoSelect.value;
@@ -454,80 +621,87 @@
         if (curso) params.set('curso', curso);
         const data = await fetchJson(`${apiBase}/ejes/?${params.toString()}`);
         updateChildOptions(ejeSelect, data, 'Todos');
-        const selectedEje = new URLSearchParams(window.location.search).get('eje');
         setSelectValue(ejeSelect, selectedEje || '');
       }
 
       async function refreshEstudiantes() {
-        const curso = cursoSelect.value;
-        const texto = estudianteInput.value.trim();
+        const selectedEstudiante = estudianteSelect.value;
         const params = new URLSearchParams();
-        if (curso) params.set('curso', curso);
-        if (texto) params.set('q', texto);
+        if (cursoSelect.value) params.set('curso', cursoSelect.value);
+        if (cursoAcademicoSelect.value) {
+          params.set('curso_academico', cursoAcademicoSelect.value);
+        }
+        if (grupoSelect.value) params.set('grupo', grupoSelect.value);
+        if (anioSelect.value) params.set('anio', anioSelect.value);
+        if (periodoSelect.value) params.set('periodo', periodoSelect.value);
         const data = await fetchJson(`${apiBase}/estudiantes/?${params.toString()}`);
-        const currentValue = estudianteInput.value.trim();
-        if (!data.length && currentValue) {
-          estudianteInput.value = currentValue;
-          return;
-        }
-        if (!curso && !texto) {
-          return;
-        }
+        const items = data.map((item) => ({
+          id: item.id,
+          nombre: item.codigo ? `${item.nombre} (${item.codigo})` : item.nombre,
+        }));
+        updateChildOptions(estudianteSelect, items, 'Todos');
+        setSelectValue(estudianteSelect, selectedEstudiante || '');
       }
 
       async function refreshFiltersCascade() {
         try {
           await refreshPeriodos();
           await refreshCursos();
+          await refreshCursosAcademicos();
+          await refreshGrupos();
           await refreshEjes();
           await refreshEstudiantes();
+          renderActiveFilters();
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      anioSelect.addEventListener('change', async () => {
+        periodoSelect.value = '';
+        cursoSelect.value = '';
+        cursoAcademicoSelect.value = '';
+        grupoSelect.value = '';
+        ejeSelect.value = '';
+        estudianteSelect.value = '';
+        await refreshFiltersCascade();
+      });
+
+      periodoSelect.addEventListener('change', async () => {
+        cursoSelect.value = '';
+        ejeSelect.value = '';
+        estudianteSelect.value = '';
+        await refreshFiltersCascade();
+      });
+
+      cursoSelect.addEventListener('change', async () => {
+        ejeSelect.value = '';
+        estudianteSelect.value = '';
+        await refreshFiltersCascade();
+      });
+
+      cursoAcademicoSelect.addEventListener('change', async () => {
+        grupoSelect.value = '';
+        estudianteSelect.value = '';
+        await refreshFiltersCascade();
+      });
+
+      grupoSelect.addEventListener('change', async () => {
+        estudianteSelect.value = '';
+        await refreshEstudiantes();
+        renderActiveFilters();
+      });
+
+      estudianteSelect.addEventListener('change', renderActiveFilters);
+      clearBtn.addEventListener('click', () => {
+        form.reset();
+        window.location.href = '/reportes/';
+      });
+
+      form.addEventListener('submit', renderActiveFilters);
+
       renderActiveFilters();
-    } catch (error) {
-      console.error(error);
-    }
-  }
-
-  anioSelect.addEventListener('change', async () => {
-    periodoSelect.value = '';
-    cursoSelect.value = '';
-    ejeSelect.value = '';
-    estudianteInput.value = '';
-    await refreshFiltersCascade();
-  });
-
-  periodoSelect.addEventListener('change', async () => {
-    cursoSelect.value = '';
-    ejeSelect.value = '';
-    estudianteInput.value = '';
-    await refreshFiltersCascade();
-  });
-
-  cursoSelect.addEventListener('change', async () => {
-    ejeSelect.value = '';
-    estudianteInput.value = '';
-    await refreshFiltersCascade();
-  });
-
-  estudianteInput.addEventListener('input', () => {
-    window.clearTimeout(studentSearchTimer);
-    studentSearchTimer = window.setTimeout(() => {
-      refreshEstudiantes();
-      renderActiveFilters();
-    }, 250);
-  });
-
-  let studentSearchTimer = null;
-  clearBtn.addEventListener('click', () => {
-    form.reset();
-    window.location.href = '/reportes/';
-  });
-
-  form.addEventListener('submit', () => {
-    renderActiveFilters();
-  });
-
-  renderActiveFilters();
-  refreshFiltersCascade();
+      refreshFiltersCascade();
     })();
   </script>
 {% endblock %}

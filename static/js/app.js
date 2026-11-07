@@ -72,7 +72,10 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
     if (!normalized || normalized === "—") return "—";
 
     try {
-      const parsed = JSON.parse(normalized);
+      const parsedValue = JSON.parse(normalized);
+      const parsed = Array.isArray(parsedValue)
+        ? { errores: parsedValue }
+        : parsedValue;
       if (parsed && typeof parsed === "object") {
         const groups = [
           ["duplicadas", "Duplicadas"],
@@ -103,22 +106,12 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
     return escapeHtml(normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized);
   };
 
-  const getImportHistoryKind = (value) => {
-    if (!value) return "all";
-    const normalized = String(value).trim();
-    if (!normalized || normalized === "—") return "all";
-
-    try {
-      const parsed = JSON.parse(normalized);
-      if (!parsed || typeof parsed !== "object") return "all";
-      if (Array.isArray(parsed.errores) && parsed.errores.length) return "errores";
-      if (Array.isArray(parsed.duplicadas) && parsed.duplicadas.length) return "duplicadas";
-      if (Array.isArray(parsed.validas) && parsed.validas.length) return "validas";
-    } catch (error) {
-      return "all";
-    }
-
-    return "all";
+  const getImportHistoryKinds = (item) => {
+    const kinds = [];
+    if (Number(item.registros_exitosos) > 0) kinds.push("validas");
+    if (Number(item.registros_duplicados) > 0) kinds.push("duplicadas");
+    if (Number(item.registros_con_errores) > 0) kinds.push("errores");
+    return kinds.join(" ") || "all";
   };
 
   async function fetchAllPages(endpoint, query = {}) {
@@ -221,6 +214,9 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
     }
     if (hasPermission("RESULTADOS", "VER") || hasPermission("RESULTADOS", "VER_PROPIA_NOTA")) {
       pages.push({ id: "results", label: "Resultados" });
+    }
+    if (hasPermission("REPORTES", "VER")) {
+      pages.push({ id: "reports", label: "Consultas y reportes" });
     }
     navigation.innerHTML = pages.map((page) =>
       `<button class="nav-link ${activePage === page.id ? "active" : ""}" data-page="${page.id}">${page.label}</button>`
@@ -823,13 +819,14 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
       canImport ? api(endpoints.quizzes) : Promise.resolve([]),
     ]);
     pageContent.innerHTML = `
-      <div class="page-header"><div><p class="eyebrow">Carga masiva</p><h1>Importar preguntas desde Excel</h1><p>Descarga la plantilla, revisa las filas y confirma la importación cuando estés listo.</p></div>${canImport ? `<button id="download-import-template" class="button button-quiet" type="button">Descargar plantilla .xlsx</button>` : ""}</div>
+      <div class="page-header"><div><p class="eyebrow">Carga masiva</p><h1>Importar preguntas desde Excel</h1><p>Descarga la plantilla, revisa las filas y confirma la importación cuando estés listo. Las preguntas ya existentes se cuentan como duplicadas, no como errores.</p></div>${canImport ? `<button id="download-import-template" class="button button-quiet" type="button">Descargar plantilla .xlsx</button>` : ""}</div>
       ${canImport ? `<section class="card"><form id="import-form" class="form-stack">
         <label>Cuestionario de destino<select name="cuestionario_id" required>${quizzes.map((quiz) => `<option value="${quiz.id}">${escapeHtml(quiz.nombre)}</option>`).join("")}</select></label>
         <label>Libro Excel (.xlsx)<input class="file-input" name="archivo" type="file" accept=".xlsx" required></label>
         <div class="toolbar"><button class="button button-primary">Previsualizar filas</button><button id="confirm-import" class="button button-primary" type="button" hidden>Confirmar importación</button></div>
       </form><div id="import-preview"></div></section>` : ""}
       ${canViewHistory ? `<section class="section"><h2>Historial de importaciones</h2>
+        <div class="toolbar"><button id="export-import-history" class="button button-quiet" type="button">Exportar vista a Excel</button></div>
         <div class="history-tabs" role="tablist">
           <button type="button" class="history-tab active" data-history-filter="all" role="tab" aria-selected="true">Todas</button>
           <button type="button" class="history-tab" data-history-filter="validas" role="tab" aria-selected="false">Válidas</button>
@@ -837,11 +834,11 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
           <button type="button" class="history-tab" data-history-filter="errores" role="tab" aria-selected="false">Con errores</button>
         </div>
         ${renderTable(
-          ["Archivo", "Fecha", "Correctas", "Fallidas", "Resultado", "Detalle"],
+          ["Archivo", "Fecha", "Nuevas", "Duplicadas", "Con errores", "Resultado", "Detalle"],
           history.map((item) => {
             const { date, time } = formatDateParts(item.fecha_importacion);
             return `
-              <tr data-table-row data-history-kind="${getImportHistoryKind(item.detalles_error)}">
+              <tr data-table-row data-history-kinds="${getImportHistoryKinds(item)}">
                 <td class="filename-cell" title="${escapeHtml(item.nombre_archivo || "")}">
                   <span class="filename-text">${escapeHtml(item.nombre_archivo)}</span>
                 </td>
@@ -850,7 +847,8 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
                   <span class="time-text">${time}</span>
                 </td>
                 <td>${item.registros_exitosos}</td>
-                <td>${item.registros_fallidos}</td>
+                <td>${item.registros_duplicados}</td>
+                <td>${item.registros_con_errores}</td>
                 <td>${escapeHtml(item.estado_resultado)}</td>
                 <td class="import-detail-cell">
                   <details class="import-detail">
@@ -871,12 +869,34 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
           tab.classList.toggle("active", active);
           tab.setAttribute("aria-selected", String(active));
         });
+        const historyTable = document.querySelector(".table-search")?.nextElementSibling;
+        if (historyTable) historyTable.dataset.historyFilter = selected;
+        const searchTerm = document.querySelector("[data-table-search]")
+          ?.value.trim().toLocaleLowerCase() || "";
         document.querySelectorAll("[data-table-row]").forEach((row) => {
-          const matches = selected === "all" || row.dataset.historyKind === selected;
-          row.hidden = !matches;
+          const matchesCategory = selected === "all"
+            || row.dataset.historyKinds.split(" ").includes(selected);
+          const rowText = (row.dataset.tableSearchText || row.textContent).toLocaleLowerCase();
+          row.hidden = !matchesCategory || !rowText.includes(searchTerm);
         });
       });
     });
+    const exportHistoryButton = document.querySelector("#export-import-history");
+    if (exportHistoryButton) {
+      exportHistoryButton.addEventListener("click", async () => {
+        const selected = document.querySelector("[data-history-filter].active")
+          ?.dataset.historyFilter || "all";
+        try {
+          const workbook = await api(`${endpoints.history}exportar/?tipo=${encodeURIComponent(selected)}`);
+          const url = URL.createObjectURL(workbook);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `historial_importaciones_${selected}.xlsx`;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (error) { showMessage(error.message, "error"); }
+      });
+    }
     const formElement = document.querySelector("#import-form");
     if (!formElement) return;
     const confirmButton = document.querySelector("#confirm-import");
@@ -919,6 +939,7 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
         previewContainer.innerHTML = `
           <h2>Resultado de la previsualización (${previsualizacion.total_registros} filas)</h2>
           <p>${previsualizacion.validas.length} válidas · ${previsualizacion.duplicadas.length} duplicadas · ${previsualizacion.errores.length} con errores</p>
+          ${!previsualizacion.validas.length ? '<p class="form-hint">No hay preguntas nuevas para crear en el banco. Al confirmar, las preguntas duplicadas solo se añadirán si todavía no están vinculadas al cuestionario. Revisa la pestaña «Con errores» y corrige esas filas en el Excel.</p>' : ""}
           <div class="preview-tabs" role="tablist">${["validas", "duplicadas", "errores"].map((key, index) => `<button class="button button-quiet ${index === 0 ? "active" : ""}" type="button" role="tab" aria-selected="${index === 0}" aria-controls="preview-${key}" data-preview-tab="${key}">${key === "validas" ? "Válidas" : key === "duplicadas" ? "Duplicadas" : "Con errores"} (${previsualizacion[key].length})</button>`).join("")}</div>
           ${["validas", "duplicadas", "errores"].map((key, index) => `<section id="preview-${key}" role="tabpanel" class="preview-panel ${index ? "hidden" : ""}" data-preview-panel="${key}"><ul>${previsualizacion[key].map((item) => `<li><strong>Fila ${item.fila}:</strong> ${escapeHtml(item.motivo || item.datos?.enunciado || "Registro repetido")}${item.categoria ? ` · Categoría ${escapeHtml(item.categoria.estado)}` : ""}</li>`).join("") || "<li>Sin filas en esta categoría.</li>"}</ul></section>`).join("")}`;
         previewContainer.querySelectorAll("[data-preview-tab]").forEach((tab) => {
@@ -948,10 +969,11 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
           method: "POST",
           body: new FormData(formElement),
         });
-        showMessage(
-          `Importación ${result.importacion.estado_resultado}: ${result.importacion.registros_exitosos} nuevas, ${result.importacion.registros_fallidos} omitidas o con errores.`,
-          result.importacion.registros_fallidos ? "error" : "success",
-        );
+        const agregadas = Number(result.preguntas_agregadas_cuestionario || 0);
+        const mensaje = agregadas
+          ? `Se agregaron ${agregadas} preguntas al cuestionario (${result.importacion.registros_exitosos} nuevas en el banco). ${result.importacion.registros_duplicados} duplicadas y ${result.importacion.registros_con_errores} con errores.`
+          : `No se agregó ninguna pregunta al cuestionario: ${result.importacion.registros_duplicados} filas ya son duplicadas y ${result.importacion.registros_con_errores} tienen errores. Corrige los errores y carga preguntas nuevas o selecciona un cuestionario donde las duplicadas aún no estén vinculadas.`;
+        showMessage(mensaje, result.importacion.registros_con_errores ? "error" : "success");
         await loadImports();
       } catch (error) { showMessage(error.message, "error"); }
     });
@@ -1151,6 +1173,7 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
       results: profile?.rol?.toLowerCase() === "estudiante"
         ? "RESULTADOS.VER_PROPIA_NOTA"
         : "RESULTADOS.VER",
+      reports: "REPORTES.VER",
     };
     return pagePermissions[page];
   }
@@ -1171,6 +1194,7 @@ import { formatDateParts, formatDateTime } from "./dateUtils.js";
       else if (page === "config") await loadConfig();
       else if (page === "available") await loadAvailable();
       else if (page === "results") await loadResults();
+      else if (page === "reports") window.location.assign("/reportes/");
     } catch (error) {
       pageContent.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
       showMessage("No fue posible cargar esta sección.", "error");

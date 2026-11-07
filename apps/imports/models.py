@@ -8,6 +8,7 @@ class EstadoImportacion(models.TextChoices):
     EN_PROCESO = "En proceso", "En proceso"
     EXITOSO = "Exitoso", "Exitoso"
     PARCIAL = "Parcial", "Parcial"
+    SIN_CAMBIOS = "Sin cambios", "Sin cambios"
     FALLIDO = "Fallido", "Fallido"
 
 

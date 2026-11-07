@@ -14,6 +14,16 @@ class EstadoIntento(models.TextChoices):
 
 
 class Intento(models.Model):
+    grupo_snapshot = models.ForeignKey(
+        "accounts.Grupo",
+        on_delete=models.SET_NULL,
+        db_column="grupo_id",
+        related_name="intentos",
+        null=True,
+        blank=True,
+    )
+    curso_nombre_snapshot = models.CharField(max_length=100, blank=True, default="")
+    grupo_nombre_snapshot = models.CharField(max_length=50, blank=True, default="")
     cuestionario = models.ForeignKey(
         "quizzes.Cuestionario",
         on_delete=models.CASCADE,

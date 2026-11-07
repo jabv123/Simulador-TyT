@@ -4,6 +4,7 @@ from django.urls import path
 
 from .views import (
     ConfirmarImportacionView,
+    ExportarHistorialImportacionesView,
     ImportarExcelView,
     ListaImportacionesView,
     PlantillaImportacionView,
@@ -26,4 +27,9 @@ urlpatterns = [
     ),
     path("", ImportarExcelView.as_view(), name="importar"),
     path("historial/", ListaImportacionesView.as_view(), name="historial"),
+    path(
+        "historial/exportar/",
+        ExportarHistorialImportacionesView.as_view(),
+        name="historial-exportar",
+    ),
 ]

@@ -105,6 +105,9 @@ class AccountsApiTests(APITestCase):
         self.assertEqual(perfil.status_code, 200)
         self.assertNotIn("password", perfil.data)
         self.assertNotIn("contrasena_hash", perfil.data)
+        reportes = self.client.get(reverse("reports:home"))
+        self.assertEqual(reportes.status_code, 200)
+        self.assertContains(reportes, "Consultas y reportes")
 
     def test_username_field_es_codigo_y_login_usa_codigo(self):
         self.assertEqual(Usuario.USERNAME_FIELD, "codigo")
@@ -186,6 +189,8 @@ class AccountsApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(logout.status_code, 200, logout.data)
+        reportes = self.client.get(reverse("reports:home"))
+        self.assertEqual(reportes.status_code, 401)
         renovacion = self.client.post(
             reverse("accounts:refresh"),
             {"refresh": tokens.data["refresh"]},

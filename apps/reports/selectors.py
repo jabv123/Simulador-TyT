@@ -6,7 +6,7 @@ from datetime import datetime
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.accounts.models import Usuario
+from apps.accounts.models import CursoAcademico, Grupo, Usuario
 from apps.attempts.models import Intento
 from apps.questions.models import Categoria
 from apps.quizzes.models import Cuestionario
@@ -48,7 +48,11 @@ def periodo_a_rango_fechas(periodo, anio=None):
 
 
 def get_base_intento_queryset():
-    return Intento.objects.select_related("cuestionario", "usuario")
+    return Intento.objects.select_related(
+        "cuestionario",
+        "usuario",
+        "grupo_snapshot__curso",
+    )
 
 
 def filter_intentos(queryset, filtros):
@@ -89,6 +93,12 @@ def filter_intentos(queryset, filtros):
                     queryset = queryset.filter(pk__in=ids)
     if "curso" in filtros and filtros["curso"] not in (None, ""):
         queryset = queryset.filter(cuestionario_id=filtros["curso"])
+    if "curso_academico" in filtros and filtros["curso_academico"] not in (None, ""):
+        queryset = queryset.filter(
+            grupo_snapshot__curso_id=filtros["curso_academico"]
+        )
+    if "grupo" in filtros and filtros["grupo"] not in (None, ""):
+        queryset = queryset.filter(grupo_snapshot_id=filtros["grupo"])
     if "eje" in filtros and filtros["eje"] not in (None, ""):
         queryset = queryset.filter(respuestas__pregunta__categoria_id=filtros["eje"]).distinct()
     if "estudiante" in filtros and filtros["estudiante"] not in (None, ""):
@@ -156,6 +166,33 @@ def get_cursos_disponibles(anio=None, periodo=None):
     return list(qs.order_by("nombre").values("id", "nombre"))
 
 
+def get_cursos_academicos_disponibles():
+    return list(
+        CursoAcademico.objects.filter(estado="ACTIVO")
+        .order_by("nombre")
+        .values("id", "nombre")
+    )
+
+
+def get_grupos_academicos_disponibles(curso_academico=None):
+    qs = Grupo.objects.filter(estado="ACTIVO", curso__estado="ACTIVO")
+    if curso_academico:
+        qs = qs.filter(curso_id=curso_academico)
+    grupos = qs.order_by("curso__nombre", "nombre").values(
+        "id",
+        "nombre",
+        "curso__nombre",
+    )
+    return [
+        {
+            "id": grupo["id"],
+            "nombre": grupo["nombre"],
+            "curso_nombre": grupo["curso__nombre"],
+        }
+        for grupo in grupos
+    ]
+
+
 def get_ejes_disponibles(anio=None, periodo=None, curso=None):
     qs = Categoria.objects.filter(estado="Activo")
     if curso:
@@ -186,10 +223,24 @@ def get_ejes_disponibles(anio=None, periodo=None, curso=None):
     return list(qs.order_by("nombre").values("id", "nombre"))
 
 
-def get_estudiantes_disponibles(curso=None, texto=None, anio=None, periodo=None):
-    qs = Usuario.objects.filter(rol__nombre__iexact="Estudiante", estado="ACTIVO")
+def get_estudiantes_disponibles(
+    curso=None,
+    texto=None,
+    anio=None,
+    periodo=None,
+    curso_academico=None,
+    grupo=None,
+    include_identificacion=True,
+):
+    qs = Usuario.objects.filter(rol__nombre__iexact="Estudiante")
     if curso:
         qs = qs.filter(intentos__cuestionario_id=curso).distinct()
+    if curso_academico:
+        qs = qs.filter(
+            intentos__grupo_snapshot__curso_id=curso_academico
+        ).distinct()
+    if grupo:
+        qs = qs.filter(intentos__grupo_snapshot_id=grupo).distinct()
     if anio:
         qs = qs.filter(intentos__cuestionario__fecha_apertura__year=anio).distinct()
     if periodo:
@@ -204,21 +255,29 @@ def get_estudiantes_disponibles(curso=None, texto=None, anio=None, periodo=None)
                 ).distinct()
         elif rango is not None:
             estudiantes = []
-            for estudiante in qs.only("id", "nombre", "codigo"):
+            campos_estudiante = ["id", "nombre"]
+            if include_identificacion:
+                campos_estudiante.append("codigo")
+            for estudiante in qs.only(*campos_estudiante):
                 fechas = [
                     intento.cuestionario.fecha_apertura
                     for intento in estudiante.intentos.select_related("cuestionario").all()
                     if intento.cuestionario and intento.cuestionario.fecha_apertura is not None
                 ]
                 if any(rango[0] <= fecha.month <= rango[1] for fecha in fechas):
-                    estudiantes.append({"id": estudiante.id, "nombre": estudiante.nombre, "codigo": estudiante.codigo})
+                    resultado = {"id": estudiante.id, "nombre": estudiante.nombre}
+                    if include_identificacion:
+                        resultado["codigo"] = estudiante.codigo
+                    estudiantes.append(resultado)
             return estudiantes
     if texto:
         busqueda = texto.strip()
         if busqueda:
-            qs = qs.filter(
-                Q(nombre__icontains=busqueda)
-                | Q(codigo__icontains=busqueda)
-                | Q(correo__icontains=busqueda)
-            )
-    return list(qs.order_by("nombre").values("id", "nombre", "codigo"))
+            criterios = Q(nombre__icontains=busqueda) | Q(correo__icontains=busqueda)
+            if include_identificacion:
+                criterios |= Q(codigo__icontains=busqueda)
+            qs = qs.filter(criterios)
+    campos = ["id", "nombre"]
+    if include_identificacion:
+        campos.append("codigo")
+    return list(qs.order_by("nombre").values(*campos))

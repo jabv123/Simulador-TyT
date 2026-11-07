@@ -1,5 +1,12 @@
 """Configuración aislada para pruebas automatizadas."""
 
+import os
+
+os.environ.setdefault("DJANGO_SECRET_KEY", "test-only-secret-key-for-django-unit-tests")
+os.environ.setdefault("DB_NAME", "test")
+os.environ.setdefault("DB_USER", "test")
+os.environ.setdefault("DB_PASSWORD", "test")
+
 from .base import *  # noqa: F403
 
 DATABASES = {

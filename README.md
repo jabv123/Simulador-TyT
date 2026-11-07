@@ -21,6 +21,12 @@ Copy-Item .env.example .env
 Completa en `.env` la clave secreta de Django y las credenciales MariaDB.
 No compartas ese archivo ni lo incluyas en Git.
 
+`python manage.py check` valida la configuración de Django, pero no confirma la
+conexión con MariaDB. `runserver` sí necesita conectarse para revisar las
+migraciones. Si aparece `Access denied ... (using password: NO)`, falta
+`DB_PASSWORD` en `.env`; si aparece `using password: YES`, revisa que
+`DB_USER` y `DB_PASSWORD` coincidan con el usuario creado en MariaDB.
+
 ## Crear la base MariaDB
 
 Desde una consola de MariaDB con permisos para crear bases y usuarios, ejecuta
@@ -93,12 +99,14 @@ recibe permisos de consulta de cuestionarios disponibles, inicio/respuesta/
 finalización de intentos y consulta de su propia nota. Los roles `Docente`
 preexistentes conservan y amplían sus permisos de trabajo académico.
 
-Los modelos de las 13 tablas (`roles`, `permisos`, `rol_permisos`, `usuarios`,
-`categorias`, `preguntas`, `opciones_respuesta`, `cuestionarios`,
+Los modelos de las 13 tablas originales (`roles`, `permisos`, `rol_permisos`,
+`usuarios`, `categorias`, `preguntas`, `opciones_respuesta`, `cuestionarios`,
 `cuestionario_preguntas`, `intentos`, `respuestas_intento`, `importaciones` y
-`configuracion_sistema`) declaran sus `db_table` explícitos. Las claves foráneas
-usan índices Django y se agregan índices compuestos para filtros por estado,
-fechas, propietario y orden.
+`configuracion_sistema`) declaran sus `db_table` explícitos. Las consultas
+académicas agregan `cursos_academicos` y `grupos_academicos`, una asignación
+opcional de grupo al estudiante y una copia de curso/grupo en cada intento para
+conservar su contexto histórico. Ejecuta las migraciones nuevas normalmente;
+no uses `--fake-initial` para estas tablas.
 
 ## Ejecutar y probar
 
@@ -144,6 +152,21 @@ de SimpleJWT.
 - `/api/cuestionarios/<id>/iniciar/`, `/api/intentos/<id>/respuestas/` y
   `/api/intentos/<id>/enviar/`: presentación y calificación.
 - `/api/resultados/`: resultados filtrados por alcance.
+- `/api/cursos-academicos/` y `/api/grupos/`: gestión de cursos y grupos
+  académicos con permisos de usuario; `PATCH /api/usuarios/{id}/` asigna o
+  limpia el campo `grupo` de un estudiante.
+- `/reportes/`: consultas generales y por año/período, curso/grupo, estudiante,
+  eje temático y dificultad de pregunta.
+- `/reportes/api/`: misma información en JSON; el parámetro `tipo` admite
+  `general`, `periodo`, `curso_grupo`, `estudiante`, `eje` y `dificultad`.
+- `/reportes/exportar/`: libro XLSX no paginado con filtros y fecha de
+  generación, consolidado, desempeño por eje (año, período y curso), historial
+  cronológico con respuestas/aciertos/errores, comparaciones por período,
+  cursos/grupos y preguntas difíciles. Incluye la identificación solo si el rol
+  tiene `USUARIOS.GESTIONAR`.
+  Los botones de la pantalla permiten descargar por separado el Reporte A
+  (`?reporte=A`), el Reporte B (`?reporte=B`) y el Reporte C (`?reporte=C`),
+  conservando los filtros activos.
 - `/api/importaciones/`: carga Excel e historial.
 - `/api/configuracion/administracion/`: configuración institucional.
 
@@ -170,6 +193,40 @@ columna `contrasena_hash`. Un administrador no puede desactivar su propia
 cuenta ni quitarse el rol de administrador; tampoco se permite desactivar al
 último administrador activo. Los estudiantes reciben 403 al intentar gestionar
 usuarios.
+
+Los cursos y grupos académicos se gestionan con `GET`/`POST
+/api/cursos-academicos/`, `GET`/`PATCH /api/cursos-academicos/{id}/`,
+`GET`/`POST /api/grupos/` y `GET`/`PATCH /api/grupos/{id}/`. El curso de un
+grupo que ya tiene intentos no se puede cambiar. Al crear un intento se guardan
+el grupo y los nombres del curso/grupo vigentes en ese momento; reasignar al
+estudiante no altera los reportes históricos.
+
+### Consultas y reportes académicos
+
+Las comparaciones por período usan la fecha de apertura del cuestionario:
+primer semestre (enero-junio) y segundo semestre (julio-diciembre). Los
+promedios de comparación, el historial y la tabla de calificaciones se
+normalizan a escala 5,0, incluso si un cuestionario tiene otra escala original;
+el resultado de aprobado/no aprobado se decide con la nota y el umbral propios
+del cuestionario. La dificultad y los aciertos por eje consideran respuestas
+seleccionadas de intentos finalizados; las preguntas en blanco no cuentan como
+respuesta.
+
+La API devuelve:
+
+- `tipo=general`: estudiantes distintos, intentos finalizados, promedio,
+  aprobados y no aprobados.
+- `tipo=periodo`: evaluaciones distintas, intentos, estudiantes y promedio por
+  año/semestre.
+- `tipo=curso_grupo`: estudiantes evaluados, intentos, promedio, mínima,
+  máxima y estados de aprobación por grupo académico.
+- `tipo=eje`: número de preguntas, respuestas seleccionadas, aciertos,
+  porcentaje y nota ponderada sobre 5,0 por eje.
+- `tipo=estudiante`: resultados paginados; al enviar `estudiante=<id>`, también
+  devuelve `historial` completo, ordenado cronológicamente y con variación de
+  nota entre intentos.
+- `tipo=dificultad`: preguntas ordenadas por menor porcentaje de aciertos con
+  identificador, eje, respuestas y errores.
 
 Las vistas protegidas comprueban los permisos del rol en el servidor. Las
 vistas existentes que aún usan `TienePermisoConfigurado` y
@@ -347,6 +404,9 @@ El flujo recomendado tiene dos pasos y ambos requieren un archivo y un
    destino. Revalida y guarda atómicamente las filas válidas, omite duplicados,
    relaciona preguntas existentes al cuestionario cuando están activas y
    registra conteos y detalles en el historial. No se guardan filas inválidas.
+   Los duplicados y las filas con errores se reportan por separado
+   (`registros_duplicados`, `registros_con_errores`); repetir una importación
+   ya aplicada no crea preguntas duplicadas y su resultado es `Sin cambios`.
 
 `tipo` admite `MULTIPLE` y `VERDADERO_FALSO`. La respuesta correcta debe ser la
 letra `A`, `B`, `C` o `D` y corresponder a una opción con texto. La selección
@@ -354,11 +414,20 @@ múltiple admite 2 a 4 opciones consecutivas; verdadero/falso requiere las
 opciones `Verdadero` y `Falso`. Categoría, tipo, pregunta, dos opciones,
 respuesta correcta y puntaje son obligatorios; `texto_base`, opciones C/D y
 retroalimentación son opcionales. El puntaje debe ser numérico y mayor que
-cero. El historial está disponible en `GET /api/importaciones/historial/`.
+cero. El historial está disponible en `GET /api/importaciones/historial/`. Sus
+pestañas muestran una importación en cada categoría que tenga filas (válidas,
+duplicadas o con errores), y **Exportar vista a Excel** descarga el detalle de
+la categoría seleccionada. La descarga requiere `IMPORTACIONES.VER` y se
+encuentra en `GET /api/importaciones/historial/exportar/?tipo=validas`; `tipo`
+admite `all`, `validas`, `duplicadas` o `errores`.
 
 El archivo [ejemplo_importacion_preguntas.xlsx](./ejemplo_importacion_preguntas.xlsx)
 contiene filas válidas, una repetida por normalización del enunciado y una fila
-errónea sin respuesta correcta. Prueba manual desde PowerShell:
+errónea sin respuesta correcta. Es un archivo de demostración de la
+previsualización, no una carga limpia: después de importarlo, sus preguntas
+aparecen como duplicadas y no se vuelven a crear. Para probar una nueva carga,
+usa enunciados/categorías que no existan y completa la respuesta correcta de
+cualquier fila con error. Prueba manual desde PowerShell:
 
 ```powershell
 $archivo = "ejemplo_importacion_preguntas.xlsx"

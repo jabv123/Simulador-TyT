@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APITestCase
 
-from apps.accounts.models import Rol, Usuario
+from apps.accounts.models import CursoAcademico, Grupo, Rol, Usuario
 from apps.questions.models import Categoria, OpcionRespuesta, Pregunta
 from apps.quizzes.models import (
     Cuestionario,
@@ -85,10 +85,18 @@ class IntentosServicioTests(APITestCase):
         return pregunta
 
     def test_iniciar_conserva_preguntas_sin_respuesta_y_califica(self):
+        curso = CursoAcademico.objects.create(nombre="Tecnología")
+        grupo = Grupo.objects.create(curso=curso, nombre="6B")
+        self.usuario.grupo = grupo
+        self.usuario.save(update_fields=["grupo"])
+
         intento = iniciar_intento(
             cuestionario=self.cuestionario,
             usuario=self.usuario,
         )
+        self.assertEqual(intento.grupo_snapshot_id, grupo.pk)
+        self.assertEqual(intento.curso_nombre_snapshot, "Tecnología")
+        self.assertEqual(intento.grupo_nombre_snapshot, "6B")
         self.assertEqual(intento.respuestas.count(), 2)
         respuesta = guardar_respuesta(
             intento_id=intento.pk,

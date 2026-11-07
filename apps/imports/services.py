@@ -296,6 +296,8 @@ def confirmar_importacion_excel(*, archivo, usuario, cuestionario):
     errores = list(previsualizacion["errores"])
     exitosos = 0
     elementos_aplicados = 0
+    preguntas_agregadas_cuestionario = 0
+    validas_aplicadas = []
     relacionadas = set()
     if cuestionario:
         relacionadas = set(
@@ -388,6 +390,14 @@ def confirmar_importacion_excel(*, archivo, usuario, cuestionario):
                 nuevas_por_clave[clave] = pregunta
 
         if not cuestionario or pregunta.pk in relacionadas:
+            if not item.get("motivo"):
+                validas_aplicadas.append(
+                    {
+                        "fila": item["fila"],
+                        "categoria": datos["categoria"],
+                        "pregunta": datos["enunciado"],
+                    }
+                )
             continue
         if pregunta.estado != EstadoContenido.ACTIVO:
             if item.get("pregunta_existente_id"):
@@ -411,6 +421,15 @@ def confirmar_importacion_excel(*, archivo, usuario, cuestionario):
         puntaje_actual += puntaje
         relacionadas.add(pregunta.pk)
         elementos_aplicados += 1
+        preguntas_agregadas_cuestionario += 1
+        if not item.get("motivo"):
+            validas_aplicadas.append(
+                {
+                    "fila": item["fila"],
+                    "categoria": datos["categoria"],
+                    "pregunta": datos["enunciado"],
+                }
+            )
 
     filas_fallidas = {
         item["fila"] for item in errores
@@ -418,13 +437,16 @@ def confirmar_importacion_excel(*, archivo, usuario, cuestionario):
         item["fila"] for item in previsualizacion["duplicadas"]
     }
     fallidos = len(filas_fallidas)
-    resultado = (
-        "Exitoso"
-        if fallidos == 0
-        else "Parcial"
-        if elementos_aplicados
-        else "Fallido"
-    )
+    if elementos_aplicados and errores:
+        resultado = "Parcial"
+    elif elementos_aplicados:
+        resultado = "Exitoso"
+    elif previsualizacion["duplicadas"] and not errores:
+        resultado = "Sin cambios"
+    elif errores:
+        resultado = "Fallido"
+    else:
+        resultado = "Sin cambios"
     importacion = Importacion.objects.create(
         usuario=usuario,
         cuestionario=cuestionario,
@@ -434,10 +456,13 @@ def confirmar_importacion_excel(*, archivo, usuario, cuestionario):
         registros_fallidos=fallidos,
         detalles_error=json.dumps(
             {
+                "validas": validas_aplicadas,
                 "duplicadas": [
                     {
                         "fila": item["fila"],
                         "motivo": item["motivo"],
+                        "categoria": item["datos"]["categoria"],
+                        "pregunta": item["datos"]["enunciado"],
                     }
                     for item in previsualizacion["duplicadas"]
                 ],
@@ -448,6 +473,9 @@ def confirmar_importacion_excel(*, archivo, usuario, cuestionario):
         estado_resultado=resultado,
     )
     previsualizacion["errores"] = errores
+    previsualizacion["preguntas_agregadas_cuestionario"] = (
+        preguntas_agregadas_cuestionario
+    )
     return importacion, previsualizacion
 
 

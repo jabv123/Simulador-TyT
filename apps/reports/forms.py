@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from django import forms
 
-from apps.accounts.models import Usuario
+from apps.accounts.models import CursoAcademico, Grupo, Usuario
 from apps.questions.models import Categoria
 from apps.quizzes.models import Cuestionario
 
 from .selectors import (
     PERIODO_SEMESTRES,
     get_anios_disponibles,
+    get_cursos_academicos_disponibles,
     get_cursos_disponibles,
     get_ejes_disponibles,
     get_estudiantes_disponibles,
+    get_grupos_academicos_disponibles,
     get_periodos_disponibles,
     normalizar_periodo,
     periodo_a_mes_rango,
@@ -23,13 +25,18 @@ class ReportFilterForm(forms.Form):
     TIPOS_RESUMEN = [
         ("general", "General"),
         ("curso", "Curso"),
+        ("curso_grupo", "Curso / grupo"),
         ("estudiante", "Estudiante"),
         ("eje", "Eje temático"),
+        ("periodo", "Año y período"),
+        ("dificultad", "Preguntas de mayor dificultad"),
     ]
 
     anio = forms.IntegerField(required=False)
     periodo = forms.CharField(required=False, max_length=20)
     curso = forms.IntegerField(required=False)
+    curso_academico = forms.IntegerField(required=False)
+    grupo = forms.IntegerField(required=False)
     eje = forms.IntegerField(required=False)
     estudiante = forms.IntegerField(required=False)
     tipo = forms.ChoiceField(required=False, choices=TIPOS_RESUMEN)
@@ -59,13 +66,36 @@ class ReportFilterForm(forms.Form):
             raise forms.ValidationError("El estudiante es inválido.")
         return valor
 
+    def clean_curso_academico(self):
+        valor = self.cleaned_data.get("curso_academico")
+        if valor is not None and not CursoAcademico.objects.filter(pk=valor).exists():
+            raise forms.ValidationError("El curso académico no existe.")
+        return valor
+
+    def clean_grupo(self):
+        valor = self.cleaned_data.get("grupo")
+        if valor is not None and not Grupo.objects.filter(pk=valor).exists():
+            raise forms.ValidationError("El grupo académico no existe.")
+        return valor
+
     def clean(self):
         cleaned = super().clean()
         anio = cleaned.get("anio")
         periodo = cleaned.get("periodo")
         curso = cleaned.get("curso")
+        curso_academico = cleaned.get("curso_academico")
+        grupo = cleaned.get("grupo")
         eje = cleaned.get("eje")
         estudiante = cleaned.get("estudiante")
+
+        if grupo:
+            grupo_curso_id = Grupo.objects.filter(pk=grupo).values_list(
+                "curso_id", flat=True
+            ).first()
+            if curso_academico and curso_academico != grupo_curso_id:
+                self.add_error("grupo", "El grupo no pertenece al curso académico seleccionado.")
+            elif not curso_academico:
+                cleaned["curso_academico"] = grupo_curso_id
 
         if anio and curso:
             if not Cuestionario.objects.filter(pk=curso, fecha_apertura__year=anio).exists():
@@ -96,7 +126,17 @@ class ReportFilterForm(forms.Form):
 
     def get_filters(self):
         data = {}
-        for campo in ["anio", "periodo", "curso", "eje", "estudiante", "tipo", "query"]:
+        for campo in [
+            "anio",
+            "periodo",
+            "curso",
+            "curso_academico",
+            "grupo",
+            "eje",
+            "estudiante",
+            "tipo",
+            "query",
+        ]:
             valor = self.cleaned_data.get(campo)
             if valor not in (None, "", False):
                 data[campo] = valor
@@ -115,9 +155,33 @@ def obtener_cursos_disponibles(anio=None, periodo=None):
     return get_cursos_disponibles(anio, periodo)
 
 
+def obtener_cursos_academicos_disponibles():
+    return get_cursos_academicos_disponibles()
+
+
+def obtener_grupos_academicos_disponibles(curso_academico=None):
+    return get_grupos_academicos_disponibles(curso_academico)
+
+
 def obtener_ejes_disponibles(anio=None, periodo=None, curso=None):
     return get_ejes_disponibles(anio, periodo, curso)
 
 
-def obtener_estudiantes_disponibles(curso=None, texto=None, anio=None, periodo=None):
-    return get_estudiantes_disponibles(curso, texto, anio, periodo)
+def obtener_estudiantes_disponibles(
+    curso=None,
+    texto=None,
+    anio=None,
+    periodo=None,
+    curso_academico=None,
+    grupo=None,
+    include_identificacion=True,
+):
+    return get_estudiantes_disponibles(
+        curso,
+        texto,
+        anio,
+        periodo,
+        curso_academico,
+        grupo,
+        include_identificacion,
+    )

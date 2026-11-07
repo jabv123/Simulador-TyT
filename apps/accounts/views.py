@@ -1,5 +1,7 @@
 """Vistas de autenticación y consulta del perfil."""
 
+from django.contrib.auth import get_user_model, login as login_django
+from django.contrib.auth import logout as logout_django
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.generics import RetrieveUpdateAPIView
@@ -22,12 +24,26 @@ from .permissions import TienePermisoConfigurado
 class TokenAccesoView(TokenObtainPairView):
     serializer_class = TokenAccesoSerializer
 
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == status.HTTP_200_OK:
+            usuario = get_user_model().objects.get(
+                pk=response.data["usuario"]["id"]
+            )
+            login_django(
+                request._request,
+                usuario,
+                backend="django.contrib.auth.backends.ModelBackend",
+            )
+        return response
+
 
 class CerrarSesionView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
+        logout_django(request._request)
         refresh_token = request.data.get("refresh")
         if not refresh_token:
             return Response(

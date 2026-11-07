@@ -69,9 +69,13 @@ def iniciar_intento(*, cuestionario, usuario):
     if not preguntas:
         raise ValidationError("El cuestionario todavía no tiene preguntas activas.")
 
+    grupo = usuario.grupo
     intento = Intento.objects.create(
         cuestionario=cuestionario,
         usuario=usuario,
+        grupo_snapshot=grupo,
+        curso_nombre_snapshot=grupo.curso.nombre if grupo else "",
+        grupo_nombre_snapshot=grupo.nombre if grupo else "",
         numero_intento=usados + 1,
     )
     RespuestaIntento.objects.bulk_create(

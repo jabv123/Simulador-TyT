@@ -42,6 +42,61 @@ class Rol(models.Model):
         return self.nombre
 
 
+class CursoAcademico(models.Model):
+    nombre = models.CharField(max_length=100, unique=True)
+    estado = models.CharField(
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.ACTIVO,
+    )
+
+    class Meta:
+        db_table = "cursos_academicos"
+        ordering = ["nombre"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(estado__in=Estado.values),
+                name="ck_cursos_acad_estado",
+            ),
+        ]
+        indexes = [models.Index(fields=["estado"], name="idx_cursos_acad_estado")]
+
+    def __str__(self):
+        return self.nombre
+
+
+class Grupo(models.Model):
+    curso = models.ForeignKey(
+        CursoAcademico,
+        on_delete=models.PROTECT,
+        related_name="grupos",
+    )
+    nombre = models.CharField(max_length=50)
+    estado = models.CharField(
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.ACTIVO,
+    )
+
+    class Meta:
+        db_table = "grupos_academicos"
+        ordering = ["curso__nombre", "nombre"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["curso", "nombre"],
+                name="uq_grupo_curso_nombre",
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=Estado.values),
+                name="ck_grupos_acad_estado",
+            ),
+        ]
+        indexes = [models.Index(fields=["curso", "estado"], name="idx_grupo_curso_estado")]
+
+    def __str__(self):
+        return f"{self.curso.nombre} - {self.nombre}"
+
+
 class Permiso(models.Model):
     modulo = models.CharField(max_length=50)
     accion = models.CharField(max_length=50)
@@ -142,6 +197,14 @@ class Usuario(AbstractBaseUser):
         on_delete=models.PROTECT,
         db_column="rol_id",
         related_name="usuarios",
+    )
+    grupo = models.ForeignKey(
+        Grupo,
+        on_delete=models.SET_NULL,
+        db_column="grupo_id",
+        related_name="integrantes",
+        null=True,
+        blank=True,
     )
     nombre = models.CharField(max_length=150)
     codigo = models.CharField(max_length=30, unique=True)

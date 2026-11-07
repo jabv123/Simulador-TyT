@@ -9,8 +9,8 @@
 | Atributo | Valor |
 | --- | --- |
 | Código | `SRS-SIMTYT-001` |
-| Versión | `1.0` |
-| Estado | Línea base para revisión y aprobación |
+| Versión | `1.1` |
+| Estado | Línea base actualizada para revisión y aprobación |
 | Fecha de emisión | 2026-11-05 |
 | Autor | Arquitectura de Software — Full Stack / Scrum |
 | Revisores propuestos | Product Owner, Tech Lead, QA, Coordinación académica |
@@ -28,6 +28,7 @@
 | --- | --- | --- | --- |
 | 0.1 | 2026-11-05 | Arquitectura de Software | Análisis inicial del repositorio y borrador de estructura. |
 | 1.0 | 2026-11-05 | Arquitectura de Software | Especificación completa, trazabilidad, riesgos y anexo Scrum. |
+| 1.1 | 2026-11-06 | Desarrollo | Se incorporan reportes académicos, cursos/grupos y su historial por intento. |
 
 ### Nota de evidencia
 
@@ -41,7 +42,7 @@ Las metas de rendimiento, disponibilidad, capacidad, accesibilidad y el plan Scr
 | --- | --- | --- |
 | Chequeo de configuración | `python manage.py check --settings=saber_tyt.settings.test` | `System check identified no issues (0 silenced).` |
 | Migraciones pendientes | `python manage.py makemigrations --check --dry-run --settings=saber_tyt.settings.test` | `No changes detected` |
-| Suite automatizada | `python manage.py test --settings=saber_tyt.settings.test` | `Ran 78 tests` — `OK` (1.689 s en la ejecución registrada; 0.761 s en la reverificación) |
+| Suite automatizada | `python manage.py test --settings=saber_tyt.settings.test` | `Ran 91 tests` — `OK` en la reverificación posterior a reportes y cursos/grupos |
 | Versión local verificada | `python --version` / `django --version` | Python `3.13.2` / Django `5.2.18` |
 
 ---
@@ -98,6 +99,7 @@ El sistema cubre:
 8. Configuración institucional básica.
 9. Interfaz web responsive servida por Django, con navegación condicionada por permisos.
 10. Registro de importaciones y conservación del historial académico.
+11. Consultas de resultados por período, curso/grupo, eje, estudiante e ítem, con exportación XLSX.
 
 ### 1.2.2 Fuera del alcance
 
@@ -108,7 +110,7 @@ No forman parte de esta versión:
 - videovigilancia, biometría o proctoring;
 - mensajería por correo, SMS o notificaciones push;
 - recuperación de contraseña por correo electrónico;
-- analítica avanzada, tableros estadísticos o reportería exportable;
+- analítica predictiva o recomendaciones automatizadas;
 - integración con sistemas externos de admisiones o LMS;
 - multiinstitución o multiinquilino;
 - edición colaborativa en tiempo real;
@@ -293,7 +295,7 @@ La propuesta de valor es **evaluar y calificar con reglas confiables en el servi
 ## 2.5 Restricciones de diseño e implementación
 
 1. **Modelo de usuario propio:** `AUTH_USER_MODEL = "accounts.Usuario"`. No se debe usar `django.contrib.auth.models.User`.
-2. **Tablas explícitas:** las 13 tablas declaran `db_table` en español y snake_case. No se renombran sin migración, respaldo y plan de compatibilidad.
+2. **Tablas explícitas:** las 13 tablas del esquema original y las tablas añadidas para cursos/grupos declaran `db_table` en español y snake_case. No se renombran sin migración, respaldo y plan de compatibilidad.
 3. **Esquema académico preexistente:** el README contempla `migrate --fake-initial` cuando las tablas ya existen. No se deben borrar tablas para resolver conflictos.
 4. **Sin frameworks frontend:** no se agregan React, Vue, Angular, bundlers ni pasos de compilación sin aprobación del Tech Lead.
 5. **Permisos en servidor:** ocultar un botón no es seguridad. Toda operación se valida en el backend.
@@ -701,7 +703,7 @@ flowchart LR
 
 ## 4.1 Principios del modelo
 
-1. **13 tablas** con `db_table` explícito en español.
+1. **15 tablas** con `db_table` explícito en español: las 13 originales y `cursos_academicos` / `grupos_academicos`.
 2. **Claves primarias** `BigAutoField`, excepto `rol_permisos`, que usa clave primaria compuesta (`rol_id`, `permiso_id`).
 3. **Integridad referencial** con `PROTECT` en maestros académicos, `CASCADE` en dependientes y `SET_NULL` en referencias opcionales de auditoría.
 4. **Restricciones `CHECK`** para estados, fechas, puntajes, notas, tiempo e intentos.
@@ -714,6 +716,9 @@ flowchart LR
 ```mermaid
 erDiagram
     ROLES ||--o{ USUARIOS : "asigna"
+    CURSOS_ACADEMICOS ||--o{ GRUPOS_ACADEMICOS : "organiza"
+    GRUPOS_ACADEMICOS ||--o{ USUARIOS : "asigna"
+    GRUPOS_ACADEMICOS ||--o{ INTENTOS : "captura grupo histórico"
     ROLES ||--o{ ROL_PERMISOS : "configura"
     PERMISOS ||--o{ ROL_PERMISOS : "otorga"
     USUARIOS ||--o{ PREGUNTAS : "crea"
@@ -736,6 +741,17 @@ erDiagram
         text descripcion
         varchar estado
     }
+    CURSOS_ACADEMICOS {
+        bigint id PK
+        varchar nombre UK
+        varchar estado
+    }
+    GRUPOS_ACADEMICOS {
+        bigint id PK
+        bigint curso_id FK
+        varchar nombre
+        varchar estado
+    }
     PERMISOS {
         bigint id PK
         varchar modulo
@@ -750,6 +766,8 @@ erDiagram
     USUARIOS {
         bigint id PK
         bigint rol_id FK
+        bigint grupo_id FK
+        bigint grupo_id FK
         varchar nombre
         varchar codigo UK
         varchar correo UK
@@ -810,6 +828,12 @@ erDiagram
         bigint id PK
         bigint cuestionario_id FK
         bigint usuario_id FK
+        bigint grupo_id FK
+        varchar curso_nombre_snapshot
+        varchar grupo_nombre_snapshot
+        bigint grupo_id FK
+        varchar curso_nombre_snapshot
+        varchar grupo_nombre_snapshot
         int numero_intento
         datetime fecha_inicio
         datetime fecha_fin
@@ -902,6 +926,12 @@ PK compuesta: `(rol_id, permiso_id)` mediante `CompositePrimaryKey`.
 
 Índices: `idx_usuarios_estado_rol (estado, rol)`, `idx_usuarios_nombre (nombre)`. **No existe `last_login`.**
 
+La extensión académica agrega `grupo_id` nullable a `usuarios`. `cursos_academicos`
+contiene `id`, `nombre` único y `estado`; `grupos_academicos` contiene
+`curso_id`, `nombre` y `estado`, con unicidad por `(curso_id, nombre)`.
+`cursos_academicos` y `grupos_academicos` tienen sus propios índices y
+restricciones de estado.
+
 ### 4.3.5 `categorias`
 
 | Campo | Tipo | Nulo | Restricción / nota |
@@ -984,6 +1014,9 @@ Restricciones: `uk_cuestionario_pregunta (cuestionario, pregunta)`, `ck_cuestion
 | `id` | BIGINT | No | PK. |
 | `cuestionario_id` | BIGINT | No | FK a `cuestionarios`; `CASCADE`. |
 | `usuario_id` | BIGINT | No | FK a `usuarios`; `PROTECT`. |
+| `grupo_id` | BIGINT | Sí | FK nullable a `grupos_academicos`; conserva el grupo de inicio. |
+| `curso_nombre_snapshot` | VARCHAR(100) | No | Nombre del curso académico al iniciar. |
+| `grupo_nombre_snapshot` | VARCHAR(50) | No | Nombre del grupo al iniciar. |
 | `numero_intento` | INT | No | Default 1; consecutivo por usuario y cuestionario. |
 | `fecha_inicio` | DATETIME | No | `auto_now_add`. |
 | `fecha_fin` | DATETIME | Sí | Al finalizar. |
@@ -1023,7 +1056,7 @@ Restricción: `uk_intento_pregunta (intento, pregunta)`. Índice: `idx_resp_preg
 | `registros_exitosos` | INT | No | Preguntas nuevas creadas. |
 | `registros_fallidos` | INT | No | Duplicadas + errores. |
 | `detalles_error` | TEXT | Sí | JSON con duplicadas y errores. |
-| `estado_resultado` | VARCHAR(50) | No | `En proceso` / `Exitoso` / `Parcial` / `Fallido`. |
+| `estado_resultado` | VARCHAR(50) | No | `En proceso` / `Exitoso` / `Parcial` / `Sin cambios` / `Fallido`. |
 
 Índices: `idx_imp_usuario_fecha`, `idx_imp_estado_fecha`, `idx_imp_cuestionario_fecha`.
 
@@ -1484,7 +1517,7 @@ Los criterios de aceptación se redactan en forma observable. Cuando un requisit
 | --- | --- | --- | --- | --- |
 | `X-01` | Alta | Registrar auditoría de operaciones sensibles. | Login, cambios de permisos, usuarios, notas y configuración dejan traza inmutable con actor, fecha, IP y valores anterior/nuevo. | Brecha |
 | `X-02` | Media | Notificar eventos académicos. | Estudiante y docente reciben aviso de publicación, cierre y resultado por un canal definido. | Brecha |
-| `X-03` | Media | Exportar reportes académicos. | Resultados e importaciones se exportan a PDF/Excel con filtros y control de acceso. | Brecha |
+| `X-03` | Media | Consultar y exportar reportes académicos de resultados. | La pantalla y API ofrecen consolidado, períodos, curso/grupo, ejes, estudiante e ítems difíciles; XLSX requiere `REPORTES.EXPORTAR`. | Implementado |
 | `X-04` | Baja | Soportar múltiples instituciones. | Los datos se aíslan por institución y la configuración es independiente por tenant. | Brecha |
 | `X-05` | Media | Ofrecer API documentada y contrato formal. | Existe OpenAPI/Swagger versionado y probado contra la implementación. | Brecha |
 | `X-06` | Media | Exponer un endpoint de salud. | `GET /health/` informa estado de aplicación, base de datos y versión sin requerir autenticación. | Brecha |
@@ -2620,6 +2653,39 @@ Excepciones puntuales:
 }
 ```
 
+### 9.5.12 Reportes académicos
+
+`GET /reportes/api/` requiere `REPORTES.VER`. Admite filtros `anio`, `periodo`
+(`1` enero-junio o `2` julio-diciembre), `curso` (id de cuestionario),
+`curso_academico`, `grupo`, `eje` y `estudiante`; también admite `page`,
+`orden` y `direccion`. El parámetro `tipo` admite:
+
+| Tipo | Resultado |
+| --- | --- |
+| `general` | Estudiantes distintos, intentos finalizados, promedio y conteos de aprobados/no aprobados. |
+| `periodo` | Evaluaciones distintas, intentos, estudiantes y promedio por año/semestre. |
+| `curso_grupo` | Estudiantes evaluados, intentos, promedio, mínima, máxima y aprobación por curso/grupo. |
+| `eje` | Respuestas seleccionadas, correctas, porcentaje de aciertos y nota ponderada sobre 5,0. |
+| `estudiante` | Consolidado agrupado por estudiante. |
+| `dificultad` | Preguntas ordenadas por porcentaje de aciertos ascendente, con conteos de respuestas y errores. |
+
+`resultados` pagina las calificaciones individuales, normalizadas a 5,0, y
+separa el estado de aprobación del estado de finalización del intento. Al
+filtrar por estudiante, la respuesta añade `historial` cronológico con la
+variación entre notas. La dificultad y las estadísticas por eje consideran
+respuestas seleccionadas en intentos finalizados; los espacios en blanco no se
+cuentan como respuestas. `GET /reportes/exportar/` exige `REPORTES.EXPORTAR` y
+genera un XLSX no paginado con filtros activos y fecha de generación. Incluye
+consolidado individual, desempeño por eje desglosado por año/período/curso e
+historial cronológico por intento con preguntas respondidas, aciertos, errores
+y nota. La identificación se incluye únicamente cuando el rol tiene
+`USUARIOS.GESTIONAR`. También incluye comparaciones por período, cursos/grupos y
+preguntas difíciles. El filtro por eje restringe los intentos, las métricas y
+los registros de historial/exportación al eje seleccionado.
+La interfaz ofrece descargas independientes de los reportes A (consolidado),
+B (desempeño por eje) y C (historial), además del libro completo, manteniendo
+los filtros seleccionados en cada descarga.
+
 ## 9.6 Limitaciones del contrato actual
 
 1. No hay versión de API ni estrategia de deprecación; los alias duplican rutas y pueden divergir.
@@ -2630,7 +2696,7 @@ Excepciones puntuales:
 6. No hay `409 Conflict`; los conflictos de estado se expresan como `400`.
 7. No hay rate limiting ni cuotas por usuario/IP.
 8. No hay CORS, ETag, `If-Match` ni control de concurrencia optimista a nivel HTTP.
-9. La API no expone endpoints de auditoría, notificaciones ni reportes.
+9. La API no expone endpoints de auditoría ni notificaciones. Los reportes académicos están disponibles bajo `/reportes/api/`.
 10. Las operaciones masivas solo existen para importación Excel; no hay `bulk` para usuarios, preguntas o cuestionarios.
 
 ---
@@ -2910,14 +2976,14 @@ Las reglas `RN-NN` son invariantes que el sistema debe preservar. Se derivan del
 | `RN-72` | Una pregunta duplicada activa se relaciona con el cuestionario si no estaba; una inactiva se rechaza. | `confirmar_importacion_excel` | Vínculo o error. |
 | `RN-73` | El puntaje total del cuestionario no puede superar `999.99`. | `confirmar_importacion_excel` | Fila rechazada. |
 | `RN-74` | El destino debe ser propio o el usuario administrador, y no tener intentos. | `validar_destino` | `403`. |
-| `RN-75` | `registros_exitosos` cuenta preguntas nuevas; duplicadas e inválidas cuentan como fallidas. | `confirmar_importacion_excel` | Conteos conservadores. |
+| `RN-75` | `registros_exitosos` cuenta preguntas nuevas; el historial y la API distinguen duplicadas de errores de validación. `registros_fallidos` conserva el conteo legado de ambas categorías. | `confirmar_importacion_excel`, `ImportacionSerializer` | Una repetición sin errores se registra como `Sin cambios`; el cliente informa nuevas, duplicadas y errores por separado. |
 | `RN-76` | El flujo legado y el flujo de dos pasos no comparten el mismo parser de respuesta correcta. | `importar_preguntas_excel` vs. `confirmar_importacion_excel` | Divergencia funcional; ver D-03. |
 
 ## 11.8 Integridad, datos y operación
 
 | ID | Regla | Fuente | Efecto |
 | --- | --- | --- | --- |
-| `RN-77` | Las 13 tablas tienen `db_table` explícito y nombres en español. | `apps/*/models.py`, migraciones | El esquema es estable y legible. |
+| `RN-77` | Las 15 tablas tienen `db_table` explícito y nombres en español. | `apps/*/models.py`, migraciones | El esquema es estable y legible. |
 | `RN-78` | Las migraciones de datos son idempotentes. | `get_or_create`/`update_or_create` | Pueden ejecutarse sobre bases existentes. |
 | `RN-79` | Las relaciones académicas usan `PROTECT` o `SET_NULL` para conservar historia. | `on_delete` de modelos | No se borran usuarios, preguntas o cuestionarios con historia. |
 | `RN-80` | La configuración institucional es una fila única obtenida con `first()`. | `ConfiguracionSistema`, vistas de core | No hay creación ni borrado por API. |
@@ -3224,7 +3290,7 @@ Cada riesgo se valora con probabilidad (`P`) e impacto (`I`) en una escala de 1 
 | `R-07` | Exposición de respuestas correctas por un cambio futuro. | El serializador de intentos las oculta, pero no hay prueba de contrato que impida una regresión. | 2 | 5 | 10 | Prueba dedicada que inspeccione todo el payload del intento y de la revisión. | Media |
 | `R-08` | Importación maliciosa o agotamiento de memoria. | Se aceptan `.xlsx` de hasta 10 MB y se procesan con `openpyxl`; no hay antivirus ni límite de filas. | 3 | 3 | 9 | Límite de filas, lectura controlada, cuarentena y análisis antivirus. | Media |
 | `R-09` | Pérdida de datos por respaldo no verificado. | El repositorio no incluye automatización de respaldo ni simulacro de restauración. | 3 | 5 | 15 | Respaldo diario, binlog, almacenamiento externo y prueba de restauración trimestral. | Alta |
-| `R-10` | Deriva de esquema o migración mal aplicada. | Hay 13 tablas y el README contempla `--fake-initial`; un plan mal revisado puede dejar el esquema inconsistente. | 3 | 4 | 12 | `migrate --plan` obligatorio, revisión en PR y ambientes separados. | Alta |
+| `R-10` | Deriva de esquema o migración mal aplicada. | Hay 15 tablas y el README contempla `--fake-initial`; un plan mal revisado puede dejar el esquema inconsistente. | 3 | 4 | 12 | `migrate --plan` obligatorio, revisión en PR y ambientes separados. | Alta |
 | `R-11` | Indisponibilidad por instancia única y sin salud. | No existe `/health/`, balanceador ni réplica; el arranque WSGI usa configuración de desarrollo por defecto. | 3 | 4 | 12 | Endpoint de salud, Gunicorn con `production`, réplica y monitoreo. | Alta |
 | `R-12` | Regresiones de frontend no detectadas. | No hay pruebas de JavaScript ni E2E; la validación es manual. | 4 | 3 | 12 | Playwright para login, panel, cuestionarios e intento. | Alta |
 | `R-13` | Degradación por listados sin paginación. | Resultados, cuestionarios e importaciones devuelven listas completas. | 3 | 3 | 9 | Paginación, límites y pruebas de volumen. | Media |
@@ -3258,7 +3324,7 @@ Cada riesgo se valora con probabilidad (`P`) e impacto (`I`) en una escala de 1 
 | --- | --- | --- | --- |
 | Sin auditoría de operaciones sensibles. | `X-01` | No hay traza de cambios de permisos, usuarios, notas o configuración. | Alta |
 | Sin notificaciones académicas. | `X-02` | Estudiantes y docentes no reciben avisos de publicación, cierre o resultado. | Media |
-| Sin exportación de reportes. | `X-03` | Resultados e importaciones solo se consultan en pantalla o API. | Media |
+| Formatos de exportación distintos de XLSX o exportación de historiales de importación. | `X-03` | La exportación implementada cubre reportes de resultados en XLSX. | Baja |
 | Sin soporte multi-institución. | `X-04` | Una sola configuración institucional y datos compartidos. | Baja |
 | Sin contrato OpenAPI. | `X-05` | La integración depende de `README.md` y del código. | Media |
 | Sin endpoint de salud. | `X-06` | No hay verificación simple para balanceadores o monitoreo. | Media |
@@ -3350,10 +3416,10 @@ Un riesgo solo se marca como cerrado cuando existe evidencia verificable de la m
 | `EP-08` | Deuda de dominio | Unificar importación, completar matriz `Docente`, retirar alias y `config/`. | `R-04`, `D-03`, `D-06`, `D-09`, `IMP-14`, `IMP-15` | 18 |
 | `EP-09` | Accesibilidad y experiencia | WCAG 2.1 AA, teclado, foco, ayuda contextual y móvil. | `UI-15`, `NFR-USA-04/05/07` | 18 |
 | `EP-10` | Contrato y documentación | OpenAPI, pruebas de contrato y guía de integración. | `X-05`, `D-16` | 13 |
-| `EP-11` | Reportes y exportación | Exportación de resultados e importaciones con filtros y permisos. | `X-03` | 13 |
+| `EP-11` | Reportes y exportación de resultados | Consultas por período, curso/grupo, eje, estudiante y dificultad, más libro XLSX con permisos. | `X-03` | Implementada |
 | `EP-12` | Multi-institución | Aislamiento por institución y configuración independiente. | `X-04` | 34 |
 
-Las épicas `EP-11` y `EP-12` son candidatas de backlog y no se incluyen en el plan de seis sprints; requieren decisión de producto y análisis de costo.
+La épica `EP-12` continúa como candidata de backlog; `EP-11` fue implementada con reportes de resultados y exportación XLSX.
 
 ## 15.5 Plan de sprints propuesto
 
@@ -3416,7 +3482,7 @@ Capacidad supuesta: 34–38 puntos por sprint, con un equipo de 2–3 desarrolla
 - Los incrementos se despliegan a staging al final de cada sprint y a producción solo con aprobación del Product Owner.
 - La estrategia de release es incremental: `M1` y `M2` son habilitadores; `M3` y `M4` consolidan la versión candidata.
 - Todo release incluye: notas de cambio, migraciones revisadas, respaldo previo, plan de rollback y responsable de guardia.
-- Las épicas `EP-11` y `EP-12` se reevalúan después de `M4` con datos de uso y costo.
+- La épica `EP-12` se reevalúa después de `M4` con datos de uso y costo.
 
 ## 15.9 Riesgos del plan
 
@@ -3601,7 +3667,7 @@ mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p \
 Criterios de aceptación del respaldo:
 
 1. El archivo se almacena fuera del servidor de aplicación y se cifra en reposo.
-2. La restauración produce un esquema con las 13 tablas y los datos semilla.
+2. La restauración produce un esquema con las 15 tablas y los datos semilla.
 3. El login y un intento de prueba funcionan sobre la base restaurada.
 4. El tiempo medido cumple el RTO propuesto de 4 horas y el RPO de 24 horas.
 5. El simulacro se documenta con fecha, responsable, duración y hallazgos.
@@ -3754,7 +3820,7 @@ El rollback de código no revierte automáticamente una migración de datos. Por
 | `Q-04` | ¿Se integrará con un proveedor de identidad institucional? | Autenticación y sincronización de usuarios. | Tech Lead / Institucional | Sprint 3 |
 | `Q-05` | ¿Qué proveedor de correo se usará para recuperación y notificaciones? | `EP-03` y operación. | Operaciones | Sprint 4 |
 | `Q-06` | ¿El rol `Docente` debe poder cerrar cuestionarios y ver disponibles? | Matriz de permisos y experiencia. | Product Owner | Sprint 2 |
-| `Q-07` | ¿Qué formatos de exportación son obligatorios? | `X-03` y esfuerzo de reportes. | Coordinación académica | Sprint 5 |
+| `Q-07` | ¿Se requieren formatos de exportación adicionales a XLSX para resultados? | Alcance futuro de `X-03`. | Coordinación académica | Sprint 5 |
 | `Q-08` | ¿Se exige WCAG 2.1 AA o un nivel distinto? | Alcance de accesibilidad y auditoría. | Product Owner | Sprint 4 |
 | `Q-09` | ¿Cuál es la plataforma de despliegue institucional? | Runbook, TLS, backups y observabilidad. | Operaciones | Sprint 3 |
 | `Q-10` | ¿Se confirman RTO de 4 h y RPO de 24 h? | Arquitectura de respaldo y costo. | Operaciones / Product Owner | Sprint 4 |
